@@ -1,0 +1,14 @@
+# DNSC Hostel Management System
+
+.env
+*.env.local
+node_modules/
+.next/
+dist/
+build/
+*.log
+.DS_Store
+Thumbs.db
+coverage/
+.nyc_output/
+prisma/migrations/*/migration_lock.toml

@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE `reservations` ADD COLUMN `client_type` ENUM('INTERNAL', 'EXTERNAL') NOT NULL DEFAULT 'EXTERNAL';

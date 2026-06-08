@@ -1,0 +1,364 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   DNSC HMS Design System — CSS Variables
+   ============================================================ */
+
+@layer base {
+  :root {
+    /* Backgrounds */
+    --background: 210 20% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    /* Brand: DNSC Forest Green */
+    --primary: 153 76% 23%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 153 20% 92%;
+    --secondary-foreground: 153 70% 10%;
+    --muted: 153 15% 92%;
+    --muted-foreground: 153 20% 45%;
+    --accent: 153 20% 92%;
+    --accent-foreground: 153 70% 10%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 153 20% 88%;
+    --input: 153 20% 88%;
+    --ring: 153 76% 23%;
+    --radius: 0.625rem;
+
+    /* Sidebar-specific (DNSC Deep Forest Theme) */
+    --sidebar-bg: 153 70% 10%;
+    --sidebar-fg: 153 20% 92%;
+    --sidebar-border: 153 50% 15%;
+    --sidebar-active: 153 76% 30%;
+    --sidebar-muted: 153 15% 65%;
+    --sidebar-hover: 153 50% 15%;
+  }
+
+  .dark {
+    --background: 153 60% 5%;
+    --foreground: 153 20% 92%;
+    --card: 153 60% 7%;
+    --card-foreground: 153 20% 92%;
+    --popover: 153 60% 7%;
+    --popover-foreground: 153 20% 92%;
+
+    /* Brand: Lighter green for dark mode */
+    --primary: 153 76% 35%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 153 30% 13%;
+    --secondary-foreground: 153 20% 92%;
+    --muted: 153 30% 13%;
+    --muted-foreground: 153 15% 65%;
+    --accent: 153 30% 13%;
+    --accent-foreground: 153 20% 92%;
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 153 30% 15%;
+    --input: 153 30% 15%;
+    --ring: 153 76% 35%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+  }
+}
+
+/* ── Scrollbar Styling ──────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-muted-foreground/25 rounded-full;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-muted-foreground/45;
+}
+
+/* ── Page Transition ──────────────────────────────────────── */
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.page-enter {
+  animation: page-in 0.25s ease-out;
+}
+
+/* ── Sidebar nav link hover shimmer ───────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+/* ── Print: hide sidebar & topbar ────────────────────────── */
+@media print {
+  aside,
+  header {
+    display: none !important;
+  }
+  main {
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════
+   FullCalendar — Custom DNSC HMS Theme
+   ══════════════════════════════════════════════════════════ */
+
+/* ── Reset FullCalendar border styles to match design system */
+.fc {
+  font-family: inherit;
+  --fc-border-color: hsl(var(--border));
+  --fc-button-bg-color: transparent;
+  --fc-button-border-color: hsl(var(--border));
+  --fc-button-text-color: hsl(var(--foreground));
+  --fc-button-hover-bg-color: hsl(var(--accent));
+  --fc-button-hover-border-color: hsl(var(--border));
+  --fc-button-active-bg-color: hsl(var(--primary));
+  --fc-button-active-border-color: hsl(var(--primary));
+  --fc-button-active-text-color: hsl(var(--primary-foreground));
+  --fc-today-bg-color: hsl(var(--primary) / 0.06);
+  --fc-page-bg-color: hsl(var(--card));
+  --fc-neutral-bg-color: hsl(var(--muted));
+  --fc-list-event-hover-bg-color: hsl(var(--accent));
+  --fc-highlight-color: hsl(var(--primary) / 0.1);
+  --fc-event-border-color: transparent;
+}
+
+/* ── Toolbar ─────────────────────────────────────────────── */
+.fc .fc-toolbar {
+  padding: 16px 20px;
+  gap: 12px;
+  background: hsl(var(--card));
+  border-bottom: 1px solid hsl(var(--border));
+  flex-wrap: wrap;
+}
+
+.fc .fc-toolbar-title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: hsl(var(--foreground));
+}
+
+/* ── Button Groups ───────────────────────────────────────── */
+.fc .fc-button-group {
+  gap: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 1px 3px hsl(var(--border) / 0.5);
+}
+
+.fc .fc-button-group .fc-button {
+  border-radius: 0 !important;
+  border: none !important;
+  border-right: 1px solid hsl(var(--border)) !important;
+  margin: 0 !important;
+  box-shadow: none !important;
+}
+
+.fc .fc-button-group .fc-button:last-child {
+  border-right: none !important;
+}
+
+/* ── All Buttons ─────────────────────────────────────────── */
+.fc .fc-button {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-transform: none;
+  letter-spacing: 0;
+  line-height: 1.4;
+  border: 1px solid hsl(var(--border)) !important;
+  background: hsl(var(--card)) !important;
+  color: hsl(var(--foreground)) !important;
+  box-shadow: 0 1px 3px hsl(var(--border) / 0.5) !important;
+}
+
+.fc .fc-button:hover {
+  background: hsl(var(--accent)) !important;
+  color: hsl(var(--accent-foreground)) !important;
+}
+
+.fc .fc-button:focus {
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.15) !important;
+}
+
+.fc .fc-button-active,
+.fc .fc-button:not(:disabled).fc-button-active {
+  background: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+  border-color: hsl(var(--primary)) !important;
+}
+
+/* ── Prev/Next nav buttons ───────────────────────────────── */
+.fc .fc-prev-button,
+.fc .fc-next-button {
+  width: 34px;
+  height: 34px;
+  padding: 0 !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Today button ────────────────────────────────────────── */
+.fc .fc-today-button {
+  margin-left: 6px !important;
+}
+
+/* ── Table / Grid ────────────────────────────────────────── */
+.fc-theme-standard td,
+.fc-theme-standard th {
+  border-color: hsl(var(--border));
+}
+
+.fc .fc-col-header-cell {
+  background: hsl(var(--muted) / 0.4);
+  padding: 10px 0;
+}
+
+.fc .fc-col-header-cell-cushion {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: hsl(var(--muted-foreground));
+  text-decoration: none !important;
+  padding: 4px 8px;
+}
+
+/* ── Day number ──────────────────────────────────────────── */
+.fc .fc-daygrid-day-number {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  padding: 8px 10px;
+  text-decoration: none !important;
+  line-height: 1;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+
+.fc .fc-daygrid-day-number:hover {
+  background: hsl(var(--accent));
+}
+
+/* ── Today highlight ─────────────────────────────────────── */
+.fc .fc-day-today {
+  background: hsl(var(--primary) / 0.06) !important;
+}
+
+.fc .fc-day-today .fc-daygrid-day-number {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  border-radius: 8px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+}
+
+/* ── Outside-month days ──────────────────────────────────── */
+.fc .fc-day-other .fc-daygrid-day-number {
+  color: hsl(var(--muted-foreground) / 0.5);
+  font-weight: 400;
+}
+
+/* ── Events ──────────────────────────────────────────────── */
+.fc .fc-event {
+  border: none !important;
+  border-radius: 5px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  padding: 2px 6px !important;
+  cursor: pointer !important;
+  transition: opacity 0.15s ease, transform 0.1s ease;
+}
+
+.fc .fc-event:hover {
+  opacity: 0.88;
+  transform: translateY(-1px);
+}
+
+.fc .fc-daygrid-event-harness {
+  margin-bottom: 2px;
+}
+
+/* ── "More events" link ──────────────────────────────────── */
+.fc .fc-daygrid-more-link {
+  font-size: 11px;
+  font-weight: 600;
+  color: hsl(var(--primary));
+  padding: 1px 6px;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.fc .fc-daygrid-more-link:hover {
+  background: hsl(var(--primary) / 0.1);
+}
+
+/* ── List view ───────────────────────────────────────────── */
+.fc .fc-list-day-cushion {
+  background: hsl(var(--muted) / 0.5);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+}
+
+.fc .fc-list-event-title a {
+  color: hsl(var(--foreground));
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.fc .fc-list-event:hover td {
+  background: hsl(var(--accent));
+}
+
+/* ── Popover (more events) ───────────────────────────────── */
+.fc .fc-popover {
+  border-radius: 12px !important;
+  border: 1px solid hsl(var(--border)) !important;
+  box-shadow: 0 8px 32px hsl(var(--foreground) / 0.12) !important;
+  overflow: hidden;
+}
+
+.fc .fc-popover-header {
+  background: hsl(var(--muted));
+  padding: 10px 14px;
+  font-weight: 700;
+  font-size: 0.8125rem;
+  color: hsl(var(--foreground));
+}
+
+.fc .fc-popover-body {
+  background: hsl(var(--card));
+  padding: 8px;
+}

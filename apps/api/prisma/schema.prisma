@@ -1,0 +1,357 @@
+// Prisma Schema — DNSC Hostel Management System
+// https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// Enums
+// ============================================================
+
+enum Role {
+  HOSTEL_MANAGER
+  FRONT_DESK
+}
+
+// ============================================================
+// Models
+// ============================================================
+
+model User {
+  id                   String    @id @default(uuid())
+  email                String    @unique
+  password             String
+  firstName            String    @map("first_name")
+  lastName             String    @map("last_name")
+  role                 Role      @default(FRONT_DESK)
+  isActive             Boolean   @default(true) @map("is_active")
+  refreshToken         String?   @map("refresh_token")
+  passwordResetToken   String?   @map("password_reset_token")
+  passwordResetExpires DateTime? @map("password_reset_expires")
+  lastLoginAt          DateTime? @map("last_login_at")
+  createdById          String?   @map("created_by_id")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  createdBy      User?           @relation("UserCreatedBy", fields: [createdById], references: [id])
+  createdUsers   User[]          @relation("UserCreatedBy")
+  reservations   Reservation[]
+  checkInRecords CheckInRecord[]
+  checkOutRecords CheckOutRecord[]
+
+  @@map("users")
+}
+
+model FacilityType {
+  id           String     @id @default(uuid())
+  name         String     @unique // e.g., "VIP", "Tri-Bedroom", "Dorm", "Family", "Function Hall"
+  baseCapacity Int        @map("base_capacity")
+  maxCapacity  Int        @map("max_capacity")
+  defaultRate  Float      @map("default_rate")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+  facilities   Facility[]
+
+  @@map("facility_types")
+}
+
+model Facility {
+  id             String       @id @default(uuid())
+  building       String
+  facilityCode   String       @unique @map("facility_code") // e.g., "V101", "D203"
+  facilityTypeId String       @map("facility_type_id")
+  isActive       Boolean      @default(true) @map("is_active")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  facilityType   FacilityType @relation(fields: [facilityTypeId], references: [id])
+  reservationFacilities ReservationFacility[]
+  inventory      FacilityInventory[]
+
+  @@map("facilities")
+}
+
+// ============================================================
+// Reservation Models
+// ============================================================
+
+enum ClientType {
+  INTERNAL
+  EXTERNAL
+}
+
+enum ReservationStatus {
+  DRAFT
+  PENDING
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+model Reservation {
+  id                String            @id @default(uuid())
+  reservationNumber String            @unique @map("reservation_number") // HMS-YYYYMMDD-XXXX
+  status            ReservationStatus @default(PENDING)
+  clientType        ClientType        @default(EXTERNAL) @map("client_type")
+
+  // Reservation Holder
+  holderFirstName           String            @map("holder_first_name")
+  holderLastName            String            @map("holder_last_name")
+  holderEmail               String            @map("holder_email")
+  holderPhone               String            @map("holder_phone")
+
+  // Additional Client Info
+  holderAddress             String?           @map("holder_address")
+  holderCity                String?           @map("holder_city")
+  holderState               String?           @map("holder_state")
+  holderZipCode             String?           @map("holder_zip_code")
+  holderCountry             String?           @map("holder_country") @default("Philippines")
+  holderGender              String?           @map("holder_gender")
+  preferredContactMethod    String?           @map("preferred_contact_method")
+  
+  // Emergency / Other Contact
+  emergencyContactName      String?           @map("emergency_contact_name")
+  emergencyContactPhone     String?           @map("emergency_contact_phone")
+  emergencyContactRelation  String?           @map("emergency_contact_relation")
+  
+  // Background & Preferences
+  functionHallPreferredTime String?           @map("function_hall_preferred_time")
+  hasAvailedBefore          Boolean?          @map("has_availed_before")
+  referralSource            String?           @map("referral_source")
+
+  // Dates
+  checkInDate       DateTime          @map("check_in_date")
+  checkOutDate      DateTime          @map("check_out_date")
+
+  // Notes
+  notes             String?           @db.Text
+
+  // Audit
+  createdById       String?           @map("created_by_id")
+  createdBy         User?             @relation(fields: [createdById], references: [id])
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+
+  // Relations
+  facilities        ReservationFacility[]
+  occupants         ReservationOccupant[]
+  charges           Charge[]
+  payments          Payment[]
+  checkInRecord     CheckInRecord?
+  checkOutRecord    CheckOutRecord?
+  inventoryCheckLogs InventoryCheckLog[]
+
+  @@map("reservations")
+}
+
+model ReservationFacility {
+  reservationId String      @map("reservation_id")
+  facilityId    String      @map("facility_id")
+  rateApplied   Float       @map("rate_applied")
+  reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  facility      Facility    @relation(fields: [facilityId], references: [id])
+
+  @@id([reservationId, facilityId])
+  @@map("reservation_facilities")
+}
+
+model ReservationOccupant {
+  id            String      @id @default(uuid())
+  reservationId String      @map("reservation_id")
+  firstName     String      @map("first_name")
+  lastName      String      @map("last_name")
+  email         String?
+  phone         String?
+  reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+
+  @@map("reservation_occupants")
+}
+
+enum ChargeType {
+  ROOM_CHARGE
+  FUNCTION_HALL_CHARGE
+  EXTRA_BED
+  EARLY_CHECK_IN
+  LATE_CHECK_OUT
+  DAMAGE_CHARGE
+  ADDITIONAL_REQUEST
+}
+
+model Charge {
+  id            String      @id @default(uuid())
+  reservationId String      @map("reservation_id")
+  description   String
+  quantity      Int         @default(1)
+  amount        Float
+  type          ChargeType
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+
+  @@map("reservation_charges")
+}
+
+enum PaymentMethod {
+  CASH
+  PPMP
+  PURCHASE_ORDER
+}
+
+model Payment {
+  id              String        @id @default(uuid())
+  reservationId   String        @map("reservation_id")
+  amount          Float
+  method          PaymentMethod
+  referenceNumber String?       @map("reference_number")
+  paidAt          DateTime      @default(now()) @map("paid_at")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  reservation     Reservation   @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+
+  @@map("reservation_payments")
+}
+
+// ============================================================
+// Check-In / Check-Out Records
+// ============================================================
+
+model CheckInRecord {
+  id                  String      @id @default(uuid())
+  reservationId       String      @unique @map("reservation_id")
+  reservation         Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+
+  // Actual arrival timestamp
+  actualArrivalAt     DateTime    @map("actual_arrival_at")
+
+  // Verification notes (e.g. IDs checked, key cards issued)
+  verificationNotes   String?     @db.Text @map("verification_notes")
+
+  // Facilities confirmed at check-in (JSON snapshot)
+  facilitiesSnapshot  Json        @map("facilities_snapshot")
+
+  // Occupant count at actual check-in
+  actualOccupantCount Int         @default(0) @map("actual_occupant_count")
+
+  // Additional remarks at check-in
+  remarks             String?     @db.Text
+
+  // Processing staff
+  processedById       String      @map("processed_by_id")
+  processedBy         User        @relation(fields: [processedById], references: [id])
+
+  createdAt           DateTime    @default(now()) @map("created_at")
+  updatedAt           DateTime    @updatedAt @map("updated_at")
+
+  @@map("check_in_records")
+}
+
+model CheckOutRecord {
+  id                  String      @id @default(uuid())
+  reservationId       String      @unique @map("reservation_id")
+  reservation         Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+
+  // Actual departure timestamp
+  actualDepartureAt   DateTime    @map("actual_departure_at")
+
+  // Inventory check: keys returned, etc.
+  inventoryNotes      String?     @db.Text @map("inventory_notes")
+
+  // Damages recorded during check-out (structured list as JSON)
+  damagesNoted        Json        @default("[]") @map("damages_noted")
+
+  // Whether damage charges were already applied to billing
+  damageChargesApplied Boolean    @default(false) @map("damage_charges_applied")
+
+  // Final remarks
+  remarks             String?     @db.Text
+
+  // Processing staff
+  processedById       String      @map("processed_by_id")
+  processedBy         User        @relation(fields: [processedById], references: [id])
+
+  createdAt           DateTime    @default(now()) @map("created_at")
+  updatedAt           DateTime    @updatedAt @map("updated_at")
+
+  @@map("check_out_records")
+}
+
+model InventoryCategory {
+  id        String          @id @default(uuid())
+  name      String          @unique
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @updatedAt @map("updated_at")
+  items     InventoryItem[]
+
+  @@map("inventory_categories")
+}
+
+model InventoryItem {
+  id          String             @id @default(uuid())
+  name        String             @unique
+  categoryId  String             @map("category_id")
+  category    InventoryCategory  @relation(fields: [categoryId], references: [id])
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+  inventories FacilityInventory[]
+
+  @@map("inventory_items")
+}
+
+enum ItemCondition {
+  GOOD
+  WORN
+  DAMAGED
+  MISSING
+}
+
+enum ItemStatus {
+  ACTIVE
+  MAINTENANCE
+  DISPOSED
+}
+
+model FacilityInventory {
+  id         String        @id @default(uuid())
+  facilityId String        @map("facility_id")
+  itemId     String        @map("item_id")
+  quantity   Int           @default(1)
+  condition  ItemCondition @default(GOOD)
+  status     ItemStatus    @default(ACTIVE)
+  createdAt  DateTime      @default(now()) @map("created_at")
+  updatedAt  DateTime      @updatedAt @map("updated_at")
+
+  facility   Facility      @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  item       InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([facilityId, itemId])
+  @@map("facility_inventories")
+}
+
+model InventoryCheckLog {
+  id              String        @id @default(uuid())
+  reservationId   String        @map("reservation_id")
+  facilityId      String        @map("facility_id")
+  itemId          String        @map("item_id")
+  itemName        String        @map("item_name")
+  facilityCode    String        @map("facility_code")
+  quantityMissing Int           @default(0) @map("quantity_missing")
+  quantityDamaged Int           @default(0) @map("quantity_damaged")
+  estimatedCost   Float         @default(0) @map("estimated_cost")
+  remarks         String?       @db.Text
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  reservation     Reservation   @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+
+  @@map("inventory_check_logs")
+}
+
