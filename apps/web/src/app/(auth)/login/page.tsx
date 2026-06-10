@@ -23,13 +23,13 @@ export default function LoginPage() {
       <div className="relative w-full max-w-md">
         {/* Logo / Brand */}
         <div className="flex flex-col items-center mb-8 text-white">
-          <div className="flex items-center justify-center w-24 h-24 bg-white/10 rounded-2xl p-2 backdrop-blur-sm border border-white/20 mb-4 shadow-lg">
+          <div className="relative flex items-center justify-center w-24 h-24 bg-white rounded-full overflow-hidden ring-4 ring-white/10 mb-4 shadow-xl">
             <Image
-              src="/logos/Hostel logo.png"
+              src="/logos/hostel logo no text.png"
               alt="Hostel Logo"
-              width={80}
-              height={80}
-              className="object-contain drop-shadow-md"
+              width={88}
+              height={88}
+              className="max-w-none object-contain"
               priority
             />
           </div>

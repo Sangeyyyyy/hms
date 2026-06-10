@@ -165,13 +165,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         {/* Brand */}
         <div className="flex items-center gap-3 px-5 py-4 flex-shrink-0"
           style={{ borderBottom: '1px solid hsl(var(--sidebar-border))' }}>
-          <div className="flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 bg-white/10 p-1 border border-white/5">
+          <div className="relative flex items-center justify-center w-10 h-10 rounded-full flex-shrink-0 bg-white overflow-hidden ring-2 ring-white/10">
             <Image
-              src="/logos/Hostel logo.png"
+              src="/logos/hostel logo no text.png"
               alt="Hostel Logo"
-              width={32}
-              height={32}
-              className="object-contain drop-shadow-sm"
+              width={48}
+              height={48}
+              className="max-w-none object-contain translate-y-[4px]"
               priority
             />
           </div>
