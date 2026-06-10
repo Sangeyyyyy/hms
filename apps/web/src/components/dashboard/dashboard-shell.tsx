@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import {
   Building2,
@@ -164,9 +165,15 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         {/* Brand */}
         <div className="flex items-center gap-3 px-5 py-4 flex-shrink-0"
           style={{ borderBottom: '1px solid hsl(var(--sidebar-border))' }}>
-          <div className="flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0"
-            style={{ background: 'linear-gradient(135deg, #10b981 0%, #047857 100%)' }}>
-            <Building2 className="w-5 h-5 text-white" />
+          <div className="flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 bg-white/10 p-1 border border-white/5">
+            <Image
+              src="/logos/Hostel logo.png"
+              alt="Hostel Logo"
+              width={32}
+              height={32}
+              className="object-contain drop-shadow-sm"
+              priority
+            />
           </div>
           <div className="min-w-0">
             <p className="font-bold text-sm leading-tight text-white">DNSC HMS</p>
