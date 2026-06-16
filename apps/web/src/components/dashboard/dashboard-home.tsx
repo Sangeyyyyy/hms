@@ -130,23 +130,18 @@ export function DashboardHome() {
 
     const today = toLocalDateStr(new Date());
 
-    const [facRes, occupiedRes, pendingRes, arrivalsRes, departuresRes] = await Promise.all([
-      apiClient.get('/facilities', { params: { isActive: true, limit: 1 } }).catch(() => null),
-      apiClient.get('/reservations', { params: { status: 'CHECKED_IN', limit: 1 } }).catch(() => null),
-      apiClient.get('/reservations', { params: { status: 'PENDING', limit: 1 } }).catch(() => null),
+    const [summaryRes, arrivalsRes, departuresRes] = await Promise.all([
+      apiClient.get('/reports/summary').catch(() => null),
       apiClient.get('/reservations', { params: { checkInFrom: today, checkInTo: today, limit: 20 } }).catch(() => null),
       apiClient.get('/reservations', { params: { status: 'CHECKED_IN', limit: 50 } }).catch(() => null),
     ]);
 
+    const summary = summaryRes?.data ?? {};
     setStats({
-      totalFacilities: facRes?.data?.total ?? facRes?.data?.meta?.total ?? 0,
-      occupiedFacilities: occupiedRes?.data?.total ?? occupiedRes?.data?.meta?.total ?? 0,
-      availableFacilities: Math.max(
-        0,
-        (facRes?.data?.total ?? facRes?.data?.meta?.total ?? 0) -
-        (occupiedRes?.data?.total ?? occupiedRes?.data?.meta?.total ?? 0),
-      ),
-      pendingReservations: pendingRes?.data?.meta?.total ?? pendingRes?.data?.total ?? 0,
+      totalFacilities: summary.totalFacilities ?? 0,
+      occupiedFacilities: summary.activeGuests ?? 0,
+      availableFacilities: Math.max(0, (summary.totalFacilities ?? 0) - (summary.activeGuests ?? 0)),
+      pendingReservations: summary.pendingReservations ?? 0,
     });
 
     // Today arrivals: reservations with checkInDate = today (any non-cancelled status)

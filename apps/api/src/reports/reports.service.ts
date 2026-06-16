@@ -328,6 +328,7 @@ export class ReportsService {
     const [
       totalReservations,
       activeGuests,
+      pendingReservations,
       todayCheckIns,
       todayCheckOuts,
       monthlyRevenue,
@@ -337,6 +338,7 @@ export class ReportsService {
     ] = await Promise.all([
       this.prisma.reservation.count(),
       this.prisma.reservation.count({ where: { status: ReservationStatus.CHECKED_IN } }),
+      this.prisma.reservation.count({ where: { status: ReservationStatus.PENDING } }),
       this.prisma.reservation.count({ where: { checkInDate: { gte: todayStart }, status: { not: ReservationStatus.CANCELLED } } }),
       this.prisma.reservation.count({ where: { checkOutDate: { gte: todayStart }, status: { in: [ReservationStatus.CHECKED_OUT, ReservationStatus.COMPLETED] } } }),
       this.prisma.charge.aggregate({
@@ -351,6 +353,7 @@ export class ReportsService {
     return {
       totalReservations,
       activeGuests,
+      pendingReservations,
       todayCheckIns,
       todayCheckOuts,
       monthlyRevenue: monthlyRevenue._sum.amount || 0,

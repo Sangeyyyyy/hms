@@ -25,7 +25,7 @@ apiClient.interceptors.request.use(
 );
 
 // ── Response Interceptor ───────────────────────────────────
-// Handle 401 by attempting token refresh
+// Handle 401 by attempting token refresh (refresh_token is httpOnly cookie, sent automatically)
 let isRefreshing = false;
 let failedQueue: Array<{
   resolve: (value: any) => void;
@@ -63,28 +63,16 @@ apiClient.interceptors.response.use(
       originalRequest._retry = true;
       isRefreshing = true;
 
-      const refreshToken = Cookies.get('refresh_token');
-      if (!refreshToken) {
-        // No refresh token — redirect to login
-        Cookies.remove('access_token');
-        Cookies.remove('refresh_token');
-        window.location.href = '/login';
-        return Promise.reject(error);
-      }
-
       try {
         const response = await axios.post(
           `${API_URL}/api/v1/auth/refresh`,
           {},
-          {
-            headers: { Authorization: `Bearer ${refreshToken}` },
-          },
+          { withCredentials: true },
         );
 
-        const { accessToken, refreshToken: newRefreshToken } = response.data;
+        const { accessToken } = response.data;
         const isProd = process.env.NODE_ENV === 'production';
         Cookies.set('access_token', accessToken, { secure: isProd, sameSite: 'strict' });
-        Cookies.set('refresh_token', newRefreshToken, { secure: isProd, sameSite: 'strict' });
 
         originalRequest.headers.Authorization = `Bearer ${accessToken}`;
         processQueue(null, accessToken);
@@ -92,7 +80,6 @@ apiClient.interceptors.response.use(
       } catch (refreshError) {
         processQueue(refreshError, null);
         Cookies.remove('access_token');
-        Cookies.remove('refresh_token');
         window.location.href = '/login';
         return Promise.reject(refreshError);
       } finally {

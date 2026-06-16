@@ -11,10 +11,10 @@ async function main() {
   // Upsert Hostel Manager
   const managerPassword = await bcrypt.hash('Manager@123', SALT_ROUNDS);
   const manager = await prisma.user.upsert({
-    where: { email: 'manager@hostel.com' },
+    where: { email: 'manager@dnsc-hostel.com' },
     update: {},
     create: {
-      email: 'manager@hostel.com',
+      email: 'manager@dnsc-hostel.com',
       password: managerPassword,
       firstName: 'Admin',
       lastName: 'Manager',
@@ -26,10 +26,10 @@ async function main() {
   // Upsert Front Desk Staff
   const frontDeskPassword = await bcrypt.hash('FrontDesk@123', SALT_ROUNDS);
   const frontDesk = await prisma.user.upsert({
-    where: { email: 'frontdesk@hostel.com' },
+    where: { email: 'frontdesk@dnsc-hostel.com' },
     update: {},
     create: {
-      email: 'frontdesk@hostel.com',
+      email: 'frontdesk@dnsc-hostel.com',
       password: frontDeskPassword,
       firstName: 'Front',
       lastName: 'Desk',

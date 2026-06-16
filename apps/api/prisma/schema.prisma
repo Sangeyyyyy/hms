@@ -45,6 +45,9 @@ model User {
   checkInRecords CheckInRecord[]
   checkOutRecords CheckOutRecord[]
 
+  @@index([email])
+  @@index([role])
+  @@index([isActive])
   @@map("users")
 }
 
@@ -73,6 +76,9 @@ model Facility {
   reservationFacilities ReservationFacility[]
   inventory      FacilityInventory[]
 
+  @@index([building])
+  @@index([isActive])
+  @@index([facilityTypeId])
   @@map("facilities")
 }
 
@@ -149,6 +155,12 @@ model Reservation {
   checkOutRecord    CheckOutRecord?
   inventoryCheckLogs InventoryCheckLog[]
 
+  @@index([status])
+  @@index([checkInDate])
+  @@index([checkOutDate])
+  @@index([clientType])
+  @@index([createdById])
+  @@index([holderEmail])
   @@map("reservations")
 }
 
@@ -197,6 +209,8 @@ model Charge {
 
   reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
 
+  @@index([type])
+  @@index([reservationId])
   @@map("reservation_charges")
 }
 

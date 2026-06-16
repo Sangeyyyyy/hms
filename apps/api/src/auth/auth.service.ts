@@ -7,6 +7,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service';
+import { AuditService } from '../audit/audit.service';
 import { LoginDto } from './dto/login.dto';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
 import { AuthResponse } from './interfaces/auth-response.interface';
@@ -17,6 +18,7 @@ export class AuthService {
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly auditService: AuditService,
   ) {}
 
   // ── Validate credentials (used by LocalStrategy) ─────────
@@ -42,6 +44,12 @@ export class AuthService {
       this.usersService.updateRefreshToken(user.id, tokens.refreshToken),
       this.usersService.updateLastLogin(user.id),
     ]);
+    this.auditService.log({
+      action: 'LOGIN',
+      userId: user.id,
+      userEmail: user.email,
+      resourceType: 'auth',
+    });
     return {
       user: {
         id: user.id,
@@ -71,7 +79,12 @@ export class AuthService {
 
     const tokens = await this.generateTokens(user.id, user.email, user.role);
     await this.usersService.updateRefreshToken(user.id, tokens.refreshToken);
-
+    this.auditService.log({
+      action: 'TOKEN_REFRESH',
+      userId: user.id,
+      userEmail: user.email,
+      resourceType: 'auth',
+    });
     return {
       user: {
         id: user.id,
@@ -87,6 +100,11 @@ export class AuthService {
   // ── Logout ────────────────────────────────────────────────
   async logout(userId: string): Promise<void> {
     await this.usersService.clearRefreshToken(userId);
+    this.auditService.log({
+      action: 'LOGOUT',
+      userId,
+      resourceType: 'auth',
+    });
   }
 
   // ── Token Generation ──────────────────────────────────────

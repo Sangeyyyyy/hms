@@ -1,5 +1,5 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, VersioningType } from '@nestjs/common';
+import { ValidationPipe, VersioningType, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import * as cookieParser from 'cookie-parser';
@@ -7,10 +7,22 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
+  const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule);
 
   const configService = app.get(ConfigService);
   const port = configService.get<number>('PORT', 3001);
+
+  // ── Validate required env vars ────────────────────────────
+  const requiredVars = ['JWT_SECRET', 'JWT_REFRESH_SECRET', 'DATABASE_URL'];
+  for (const varName of requiredVars) {
+    if (!configService.get<string>(varName.replace('_', '.').toLowerCase())) {
+      if (!process.env[varName]) {
+        logger.error(`Missing required environment variable: ${varName}`);
+        process.exit(1);
+      }
+    }
+  }
 
   // ── Security ──────────────────────────────────────────────
   app.use(helmet());
@@ -73,11 +85,11 @@ async function bootstrap() {
         persistAuthorization: true,
       },
     });
-    console.log(`📚 Swagger available at http://localhost:${port}/api/docs`);
+    logger.log(`Swagger available at http://localhost:${port}/api/docs`);
   }
 
   await app.listen(port);
-  console.log(`🚀 API running on http://localhost:${port}/api/v1`);
+  logger.log(`API running on http://localhost:${port}/api/v1`);
 }
 
 bootstrap();

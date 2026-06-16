@@ -8,6 +8,7 @@ import {
   IsUUID,
   ValidateNested,
   IsEnum,
+  IsBoolean,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -148,4 +149,9 @@ export class CreateReservationDto {
   @IsOptional()
   @IsEnum(ClientType)
   clientType?: ClientType;
+
+  @ApiPropertyOptional({ description: 'Skip past-date validation (for historical imports)' })
+  @IsOptional()
+  @IsBoolean()
+  allowHistoricalBooking?: boolean;
 }

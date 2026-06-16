@@ -26,13 +26,13 @@ export class ReservationsService {
       throw new BadRequestException('Check-out date must be after check-in date');
     }
 
-    // Past-date check removed temporarily for adding historical bookings
-    // To restore, uncomment the block below:
-    // const now = new Date();
-    // now.setMinutes(now.getMinutes() - 15);
-    // if (checkIn < now) {
-    //   throw new BadRequestException('Check-in date cannot be in the past');
-    // }
+    if (!dto.allowHistoricalBooking) {
+      const now = new Date();
+      now.setMinutes(now.getMinutes() - 15);
+      if (checkIn < now) {
+        throw new BadRequestException('Check-in date cannot be in the past');
+      }
+    }
 
     // 1. Verify all facility IDs exist and are active
     const facilities = await this.prisma.facility.findMany({

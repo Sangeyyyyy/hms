@@ -14,9 +14,8 @@ export const authService = {
       credentials,
     );
 
-    // Store tokens in cookies
+    // Store access token in cookie; refresh token is httpOnly (set by server)
     Cookies.set('access_token', data.accessToken, COOKIE_OPTIONS);
-    Cookies.set('refresh_token', data.refreshToken, COOKIE_OPTIONS);
 
     return data;
   },
@@ -25,11 +24,9 @@ export const authService = {
     try {
       await apiClient.post('/auth/logout');
     } catch (error) {
-      // Ignore API errors during logout to ensure local state is cleared
       console.warn('Backend logout failed, proceeding with local logout', error);
     } finally {
       Cookies.remove('access_token');
-      Cookies.remove('refresh_token');
     }
   },
 

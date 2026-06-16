@@ -11,6 +11,7 @@ import { ReservationsModule } from './reservations/reservations.module';
 import { CheckinModule } from './checkin/checkin.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { ReportsModule } from './reports/reports.module';
+import { AuditModule } from './audit/audit.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import appConfig from './config/app.config';
 import jwtConfig from './config/jwt.config';
@@ -36,6 +37,7 @@ import jwtConfig from './config/jwt.config';
     CheckinModule,
     InventoryModule,
     ReportsModule,
+    AuditModule,
   ],
   controllers: [AppController],
   providers: [
