@@ -79,9 +79,15 @@ export default function ReportsPage() {
   const { user } = useAuth();
   const [tab, setTab] = useState<'occupancy'|'income'>('occupancy');
   const [period, setPeriod] = useState('monthly');
-  const [date, setDate] = useState(new Date().toISOString().slice(0,10));
+  const [occFrom, setOccFrom] = useState(new Date().toISOString().slice(0,10));
+  const [occTo, setOccTo] = useState(new Date().toISOString().slice(0,10));
+  const [occMonthFrom, setOccMonthFrom] = useState(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`);
+  const [occMonthTo, setOccMonthTo] = useState(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`);
   const [year, setYear] = useState(new Date().getFullYear());
-  const [month, setMonth] = useState(new Date().getMonth() + 1);
+  const [incomeFrom, setIncomeFrom] = useState(new Date().toISOString().slice(0,10));
+  const [incomeTo, setIncomeTo] = useState(new Date().toISOString().slice(0,10));
+  const [incomeMonthFrom, setIncomeMonthFrom] = useState(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`);
+  const [incomeMonthTo, setIncomeMonthTo] = useState(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`);
   const [data, setData] = useState<any>(null);
   const [summary, setSummary] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -96,17 +102,29 @@ export default function ReportsPage() {
       let endpoint = '';
       const params: any = {};
       if (tab === 'occupancy') {
-        if (period === 'daily') { endpoint = '/reports/occupancy/daily'; params.date = date; }
-        else if (period === 'monthly') { endpoint = '/reports/occupancy/monthly'; params.year = year; params.month = month; }
+        if (period === 'daily') { endpoint = '/reports/occupancy/daily'; params.from = occFrom; params.to = occTo; }
+        else if (period === 'monthly') { endpoint = '/reports/occupancy/monthly'; params.from = occMonthFrom; params.to = occMonthTo; }
         else { endpoint = '/reports/occupancy/annual'; params.year = year; }
       } else {
         endpoint = '/reports/income';
+        if (period === 'daily') {
+          params.period = 'daily';
+          params.from = incomeFrom;
+          params.to = incomeTo;
+        } else if (period === 'monthly') {
+          params.period = 'monthly';
+          params.from = incomeMonthFrom;
+          params.to = incomeMonthTo;
+        } else {
+          params.period = 'annual';
+          params.from = String(year);
+        }
       }
       const r = await apiClient.get(endpoint, { params });
       setData(r.data);
     } catch (e) { setData(null); }
     finally { setLoading(false); }
-  }, [tab, period, date, year, month]);
+  }, [tab, period, occFrom, occTo, occMonthFrom, occMonthTo, year, incomeFrom, incomeTo, incomeMonthFrom, incomeMonthTo]);
 
   useEffect(() => { fetchSummary(); }, [fetchSummary]);
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -114,7 +132,7 @@ export default function ReportsPage() {
   // ── Export (CSV for occupancy, Excel for income) ──────────
   const exportCsvReport = () => {
     if (!data) return;
-    const periodLabel = period === 'daily' ? date : period === 'monthly' ? `${MONTHS[month-1]} ${year}` : String(year);
+    const periodLabel = period === 'daily' ? `${occFrom}${occTo !== occFrom ? ` to ${occTo}` : ''}` : period === 'monthly' ? `${occMonthFrom}${occMonthTo !== occMonthFrom ? ` to ${occMonthTo}` : ''}` : String(year);
 
     if (tab === 'occupancy') {
       const rows: string[][] = [];
@@ -125,9 +143,10 @@ export default function ReportsPage() {
         rows.push(['Status', 'Count', '', '']);
         data.byStatus.forEach((s: any) => rows.push([s.status, String(s.count), '', '']));
         exportCsv(`occupancy-${periodLabel.replace(/\s/g,'-')}.csv`, ['Status', 'Count', '', ''], rows.slice(2));
-      } else if (period === 'monthly' && data.daily) {
+      } else if (period === 'monthly' && (data.daily || data.monthlyBreakdown)) {
+        const dailyData = data.daily || data.monthlyBreakdown?.map((m: any, i: number) => ({ day: i + 1, count: m.count, facilityCount: m.facilityCount }));
         rows.push(['Day', 'Reservations', 'Facility Count', '']);
-        data.daily.forEach((d: any) => rows.push([String(d.day), String(d.count), String(d.facilityCount), '']));
+        dailyData.forEach((d: any) => rows.push([String(d.day), String(d.count), String(d.facilityCount), '']));
         exportCsv(`occupancy-${periodLabel.replace(/\s/g,'-')}.csv`, ['Day', 'Reservations', 'Facility Count'], rows.slice(2));
       } else if (period === 'annual' && data.monthly) {
         rows.push(['Month', 'Reservations', 'Facility Count', '']);
@@ -135,7 +154,20 @@ export default function ReportsPage() {
         exportCsv(`occupancy-${year}.csv`, ['Month', 'Reservations', 'Facility Count'], rows.slice(2));
       }
     } else if (tab === 'income' && data.rows) {
-      apiClient.get('/reports/income/export', { responseType: 'blob' }).then(r => {
+      const expParams: any = {};
+      if (period === 'daily') {
+        expParams.period = 'daily';
+        expParams.from = incomeFrom;
+        expParams.to = incomeTo;
+      } else if (period === 'monthly') {
+        expParams.period = 'monthly';
+        expParams.from = incomeMonthFrom;
+        expParams.to = incomeMonthTo;
+      } else {
+        expParams.period = 'annual';
+        expParams.from = String(year);
+      }
+      apiClient.get('/reports/income/export', { params: expParams, responseType: 'blob' }).then(r => {
         const url = URL.createObjectURL(new Blob([r.data]));
         const a = document.createElement('a'); a.href = url; a.download = `income-report-${new Date().toISOString().slice(0, 10)}.xlsx`;
         document.body.appendChild(a); a.click();
@@ -218,29 +250,59 @@ export default function ReportsPage() {
       </div>
 
       {/* Controls */}
-      {tab === 'occupancy' && (
-        <div className="flex flex-wrap items-center gap-3 no-print">
-          <PeriodSelect period={period} setPeriod={setPeriod} />
-          {period === 'daily' && (
-            <input type="date" value={date} onChange={e => setDate(e.target.value)}
+      <div className="flex flex-wrap items-center gap-3 no-print">
+        <PeriodSelect period={period} setPeriod={setPeriod} />
+
+        {tab === 'occupancy' && period === 'daily' && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">From</span>
+            <input type="date" value={occFrom} onChange={e => setOccFrom(e.target.value)}
               className="bg-background border border-input rounded-lg px-3 py-1.5 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" />
-          )}
-          {period === 'monthly' && (
-            <div className="flex gap-2">
-              <input type="number" value={year} min={2020} max={2099} onChange={e => setYear(Number(e.target.value))}
-                className="w-24 bg-background border border-input rounded-lg px-3 py-1.5 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="Year" />
-              <select value={month} onChange={e => setMonth(Number(e.target.value))}
-                className="bg-background border border-input rounded-lg px-3 py-1.5 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50">
-                {MONTHS.map((m, i) => <option key={i} value={i+1}>{m}</option>)}
-              </select>
-            </div>
-          )}
-          {period === 'annual' && (
-            <input type="number" value={year} min={2020} max={2099} onChange={e => setYear(Number(e.target.value))}
-              className="w-24 bg-background border border-input rounded-lg px-3 py-1.5 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" />
-          )}
-        </div>
-      )}
+            <span className="text-xs text-muted-foreground">To</span>
+            <input type="date" value={occTo} onChange={e => setOccTo(e.target.value)}
+              className="bg-background border border-input rounded-lg px-3 py-1.5 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" />
+          </div>
+        )}
+        {tab === 'occupancy' && period === 'monthly' && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">From</span>
+            <input type="month" value={occMonthFrom} onChange={e => setOccMonthFrom(e.target.value)}
+              className="bg-background border border-input rounded-lg px-3 py-1.5 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" />
+            <span className="text-xs text-muted-foreground">To</span>
+            <input type="month" value={occMonthTo} onChange={e => setOccMonthTo(e.target.value)}
+              className="bg-background border border-input rounded-lg px-3 py-1.5 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" />
+          </div>
+        )}
+        {tab === 'occupancy' && period === 'annual' && (
+          <input type="number" value={year} min={2020} max={2099} onChange={e => setYear(Number(e.target.value))}
+            className="w-24 bg-background border border-input rounded-lg px-3 py-1.5 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" />
+        )}
+
+        {tab === 'income' && period === 'daily' && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">From</span>
+            <input type="date" value={incomeFrom} onChange={e => setIncomeFrom(e.target.value)}
+              className="bg-background border border-input rounded-lg px-3 py-1.5 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" />
+            <span className="text-xs text-muted-foreground">To</span>
+            <input type="date" value={incomeTo} onChange={e => setIncomeTo(e.target.value)}
+              className="bg-background border border-input rounded-lg px-3 py-1.5 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" />
+          </div>
+        )}
+        {tab === 'income' && period === 'monthly' && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">From</span>
+            <input type="month" value={incomeMonthFrom} onChange={e => setIncomeMonthFrom(e.target.value)}
+              className="bg-background border border-input rounded-lg px-3 py-1.5 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" />
+            <span className="text-xs text-muted-foreground">To</span>
+            <input type="month" value={incomeMonthTo} onChange={e => setIncomeMonthTo(e.target.value)}
+              className="bg-background border border-input rounded-lg px-3 py-1.5 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" />
+          </div>
+        )}
+        {tab === 'income' && period === 'annual' && (
+          <input type="number" value={year} min={2020} max={2099} onChange={e => setYear(Number(e.target.value))}
+            className="w-24 bg-background border border-input rounded-lg px-3 py-1.5 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" />
+        )}
+      </div>
 
       {/* Report Content */}
       {loading ? (
@@ -258,7 +320,7 @@ export default function ReportsPage() {
                   <p className="text-3xl font-bold text-foreground">{data.totalFacilities}</p>
                 </div>
                 <div className="bg-card shadow-sm border border-border rounded-xl p-5">
-                  <p className="text-muted-foreground text-sm mb-1">{period === 'daily' ? 'Check-Ins' : period === 'monthly' ? 'Total Reservations' : 'Total Reservations'}</p>
+                  <p className="text-muted-foreground text-sm mb-1">{period === 'daily' ? 'Check-Ins' : 'Total Reservations'}</p>
                   <p className="text-3xl font-bold text-primary">{data.checkedIn ?? data.totalReservations}</p>
                 </div>
                 <div className="bg-card shadow-sm border border-primary/20 rounded-xl p-5">
@@ -270,12 +332,31 @@ export default function ReportsPage() {
                 </div>
               </div>
 
+              {/* Daily breakdown for day range */}
+              {period === 'daily' && data.dailyBreakdown && (
+                <div className="bg-card shadow-sm border border-border rounded-xl p-5">
+                  <h3 className="text-foreground font-semibold mb-4">Daily Check-Ins — {data.from} to {data.to}</h3>
+                  <BarChart data={data.dailyBreakdown} valueKey="checkedIn" labelKey="date" color="#10b981" />
+                </div>
+              )}
+              {/* Daily chart for single month */}
               {period === 'monthly' && data.daily && (
                 <div className="bg-card shadow-sm border border-border rounded-xl p-5">
-                  <h3 className="text-foreground font-semibold mb-4">Daily Check-Ins — {MONTHS[month-1]} {year}</h3>
+                  <h3 className="text-foreground font-semibold mb-4">Daily Check-Ins — {data.year ? `${MONTHS[(data.month||1)-1]} ${data.year}` : occMonthFrom}</h3>
                   <BarChart data={data.daily} valueKey="count" labelKey="day" color="#10b981" />
                 </div>
               )}
+              {/* Monthly chart for month range */}
+              {period === 'monthly' && data.monthlyBreakdown && (
+                <div className="bg-card shadow-sm border border-border rounded-xl p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-foreground font-semibold">Monthly Occupancy — {data.from} to {data.to}</h3>
+                    {data.peakMonth && <span className="text-xs text-primary bg-primary/10 px-2 py-1 rounded-full font-semibold border border-primary/20">Peak: {data.peakMonth}</span>}
+                  </div>
+                  <BarChart data={data.monthlyBreakdown} valueKey="count" labelKey="label" color="#10b981" />
+                </div>
+              )}
+              {/* Annual monthly chart */}
               {period === 'annual' && data.monthly && (
                 <div className="bg-card shadow-sm border border-border rounded-xl p-5">
                   <div className="flex items-center justify-between mb-4">
@@ -285,9 +366,27 @@ export default function ReportsPage() {
                   <BarChart data={data.monthly} valueKey="count" labelKey="label" color="#10b981" />
                 </div>
               )}
-              {period === 'daily' && data.byStatus && (
+              {/* byStatus for single day */}
+              {period === 'daily' && data.byStatus && !data.dailyBreakdown && (
                 <div className="bg-card shadow-sm border border-border rounded-xl p-5">
-                  <h3 className="text-foreground font-semibold mb-4">Reservations by Status — {date}</h3>
+                  <h3 className="text-foreground font-semibold mb-4">Reservations by Status — {data.date || data.from}</h3>
+                  <div className="space-y-3">
+                    {data.byStatus.map((s: any) => (
+                      <div key={s.status} className="flex items-center gap-3">
+                        <span className="text-muted-foreground text-sm w-32 font-medium">{s.status.replace('_',' ')}</span>
+                        <div className="flex-1 bg-muted rounded-full h-2.5">
+                          <div className="bg-primary h-2.5 rounded-full" style={{ width: `${Math.max((s.count / Math.max(...data.byStatus.map((x:any)=>x.count),1)) * 100, s.count > 0 ? 4 : 0)}%` }} />
+                        </div>
+                        <span className="text-foreground font-bold text-sm w-6 text-right">{s.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {/* byStatus for day range */}
+              {period === 'daily' && data.byStatus && data.dailyBreakdown && (
+                <div className="bg-card shadow-sm border border-border rounded-xl p-5">
+                  <h3 className="text-foreground font-semibold mb-4">Reservations by Status — {data.from} to {data.to}</h3>
                   <div className="space-y-3">
                     {data.byStatus.map((s: any) => (
                       <div key={s.status} className="flex items-center gap-3">

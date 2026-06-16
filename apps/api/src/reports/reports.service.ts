@@ -36,78 +36,207 @@ export class ReportsService {
 
   // ── OCCUPANCY REPORTS ──────────────────────────────────────
 
-  async occupancyDaily(date: string) {
-    const { start, end } = this.dayRange(date);
+  async occupancyDaily(from: string, to?: string) {
     const totalFacilities = await this.prisma.facility.count({ where: { isActive: true } });
 
-    const checkedIn = await this.prisma.reservation.count({
-      where: {
-        status: { in: [ReservationStatus.CHECKED_IN, ReservationStatus.CHECKED_OUT, ReservationStatus.COMPLETED] },
-        checkInDate: { gte: start, lt: end },
-      },
-    });
+    // Single day
+    if (!to) {
+      const { start, end } = this.dayRange(from);
+      const [checkedIn, byStatus, checkInRecords] = await Promise.all([
+        this.prisma.reservation.count({
+          where: {
+            status: { in: [ReservationStatus.CHECKED_IN, ReservationStatus.CHECKED_OUT, ReservationStatus.COMPLETED] },
+            checkInDate: { gte: start, lt: end },
+          },
+        }),
+        this.prisma.reservation.groupBy({
+          by: ['status'],
+          where: { checkInDate: { gte: start, lt: end } },
+          _count: { id: true },
+        }),
+        this.prisma.checkInRecord.count({
+          where: { actualArrivalAt: { gte: start, lt: end } },
+        }),
+      ]);
+      return {
+        date: from,
+        totalFacilities,
+        checkedIn,
+        checkInRecords,
+        occupancyRate: totalFacilities > 0 ? Math.round((checkedIn / totalFacilities) * 100) : 0,
+        byStatus: byStatus.map(s => ({ status: s.status, count: s._count.id })),
+      };
+    }
 
-    const byStatus = await this.prisma.reservation.groupBy({
-      by: ['status'],
-      where: { checkInDate: { gte: start, lt: end } },
-      _count: { id: true },
-    });
+    // Date range
+    const start = new Date(from);
+    const end = new Date(to + 'T23:59:59.999Z');
+    const totalDays = Math.floor((end.getTime() - start.getTime()) / 86400000) + 1;
 
-    const checkInRecords = await this.prisma.checkInRecord.count({
-      where: { actualArrivalAt: { gte: start, lt: end } },
-    });
+    const [allReservations, allCheckInRecords] = await Promise.all([
+      this.prisma.reservation.findMany({
+        where: {
+          status: { in: [ReservationStatus.CHECKED_IN, ReservationStatus.CHECKED_OUT, ReservationStatus.COMPLETED] },
+          checkInDate: { gte: start, lt: end },
+        },
+        select: { id: true, status: true, checkInDate: true },
+      }),
+      this.prisma.checkInRecord.findMany({
+        where: { actualArrivalAt: { gte: start, lt: end } },
+        select: { id: true, actualArrivalAt: true },
+      }),
+    ]);
+
+    const statusMap = new Map<string, number>();
+    for (const r of allReservations) {
+      statusMap.set(r.status, (statusMap.get(r.status) || 0) + 1);
+    }
+
+    const dailyData: { date: string; checkedIn: number; checkInRecords: number }[] = [];
+    for (let d = 0; d < totalDays; d++) {
+      const dayStart = new Date(start.getFullYear(), start.getMonth(), start.getDate() + d);
+      const dayEnd = new Date(dayStart.getTime() + 86400000);
+      const dateStr = dayStart.toISOString().slice(0, 10);
+
+      let dayCheckedIn = 0;
+      let dayCheckInRecords = 0;
+
+      for (const r of allReservations) {
+        const ci = new Date(r.checkInDate);
+        if (ci >= dayStart && ci < dayEnd) {
+          dayCheckedIn++;
+        }
+      }
+      for (const rec of allCheckInRecords) {
+        const at = new Date(rec.actualArrivalAt);
+        if (at >= dayStart && at < dayEnd) {
+          dayCheckInRecords++;
+        }
+      }
+      dailyData.push({ date: dateStr, checkedIn: dayCheckedIn, checkInRecords: dayCheckInRecords });
+    }
+
+    const totalCheckedIn = dailyData.reduce((s, d) => s + d.checkedIn, 0);
+    const totalCheckInRecords = dailyData.reduce((s, d) => s + d.checkInRecords, 0);
+    const avgOccupancyRate = totalFacilities > 0 ? Math.round((totalCheckedIn / (totalFacilities * totalDays)) * 100) : 0;
 
     return {
-      date,
+      from, to, totalDays,
       totalFacilities,
-      checkedIn,
-      checkInRecords,
-      occupancyRate: totalFacilities > 0 ? Math.round((checkedIn / totalFacilities) * 100) : 0,
-      byStatus: byStatus.map(s => ({ status: s.status, count: s._count.id })),
+      checkedIn: totalCheckedIn,
+      checkInRecords: totalCheckInRecords,
+      occupancyRate: avgOccupancyRate,
+      byStatus: Array.from(statusMap.entries()).map(([status, count]) => ({ status, count })),
+      dailyBreakdown: dailyData.map(d => ({
+        ...d,
+        occupancyRate: totalFacilities > 0 ? Math.round((d.checkedIn / totalFacilities) * 100) : 0,
+      })),
     };
   }
 
-  async occupancyMonthly(year: number, month: number) {
-    const { start, end } = this.monthRange(year, month);
+  async occupancyMonthly(from: string, to?: string) {
     const totalFacilities = await this.prisma.facility.count({ where: { isActive: true } });
-    const daysInMonth = new Date(year, month, 0).getDate();
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    const parseMonth = (s: string) => {
+      const [y, m] = s.split('-').map(Number);
+      return { year: y, month: m };
+    };
+
+    const { year: fy, month: fm } = parseMonth(from);
+    const { year: ty, month: tm } = to ? parseMonth(to) : { year: fy, month: fm };
+
+    // Single month
+    if (!to) {
+      const { start, end } = this.monthRange(fy, fm);
+      const daysInMonth = new Date(fy, fm, 0).getDate();
+      const reservations = await this.prisma.reservation.findMany({
+        where: {
+          status: { in: [ReservationStatus.CONFIRMED, ReservationStatus.CHECKED_IN, ReservationStatus.CHECKED_OUT, ReservationStatus.COMPLETED] },
+          checkInDate: { gte: start, lt: end },
+        },
+        include: { facilities: true },
+      });
+
+      const daily: { day: number; count: number; facilityCount: number }[] = [];
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dayStart = new Date(fy, fm - 1, d);
+        const dayEnd = new Date(fy, fm - 1, d + 1);
+        const dayRes = reservations.filter(r => {
+          const ci = new Date(r.checkInDate);
+          return ci >= dayStart && ci < dayEnd;
+        });
+        daily.push({
+          day: d,
+          count: dayRes.length,
+          facilityCount: dayRes.reduce((s, r) => s + r.facilities.length, 0),
+        });
+      }
+
+      const totalReservations = reservations.length;
+      const peakDay = daily.reduce((max, d) => d.count > max.count ? d : max, daily[0]);
+
+      return {
+        year: fy, month: fm,
+        totalFacilities,
+        totalReservations,
+        daysInMonth,
+        avgDailyOccupancy: Math.round(totalReservations / daysInMonth),
+        peakDay: peakDay?.day,
+        occupancyRate: totalFacilities > 0 ? Math.round((totalReservations / (totalFacilities * daysInMonth)) * 100) : 0,
+        daily,
+      };
+    }
+
+    // Month range
+    const monthStart = new Date(fy, fm - 1, 1);
+    const monthEnd = new Date(ty, tm, 0, 23, 59, 59, 999);
 
     const reservations = await this.prisma.reservation.findMany({
       where: {
         status: { in: [ReservationStatus.CONFIRMED, ReservationStatus.CHECKED_IN, ReservationStatus.CHECKED_OUT, ReservationStatus.COMPLETED] },
-        checkInDate: { gte: start, lt: end },
+        checkInDate: { gte: monthStart, lt: monthEnd },
       },
       include: { facilities: true },
     });
 
-    // Build daily breakdown
-    const daily: { day: number; count: number; facilityCount: number }[] = [];
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dayStart = new Date(year, month - 1, d);
-      const dayEnd = new Date(year, month - 1, d + 1);
-      const dayRes = reservations.filter(r => {
+    const monthly: { month: number; label: string; count: number; facilityCount: number }[] = [];
+    const totalMonths = (ty * 12 + tm) - (fy * 12 + fm) + 1;
+
+    for (let i = 0; i < totalMonths; i++) {
+      const m = fm + i;
+      const y = fy + Math.floor((m - 1) / 12);
+      const mo = ((m - 1) % 12) + 1;
+      const { start: ms, end: me } = this.monthRange(y, mo);
+
+      const monthRes = reservations.filter(r => {
         const ci = new Date(r.checkInDate);
-        return ci >= dayStart && ci < dayEnd;
+        return ci >= ms && ci < me;
       });
-      daily.push({
-        day: d,
-        count: dayRes.length,
-        facilityCount: dayRes.reduce((s, r) => s + r.facilities.length, 0),
+
+      monthly.push({
+        month: mo,
+        label: monthNames[mo - 1],
+        count: monthRes.length,
+        facilityCount: monthRes.reduce((s, r) => s + r.facilities.length, 0),
       });
     }
 
-    const totalReservations = reservations.length;
-    const peakDay = daily.reduce((max, d) => d.count > max.count ? d : max, daily[0]);
+    const totalReservations = monthly.reduce((s, m) => s + m.count, 0);
+    const peakMonth = monthly.reduce((max, m) => m.count > max.count ? m : max, monthly[0]);
 
     return {
-      year, month,
+      from, to,
+      totalMonths,
       totalFacilities,
       totalReservations,
-      daysInMonth,
-      avgDailyOccupancy: Math.round(totalReservations / daysInMonth),
-      peakDay: peakDay?.day,
-      occupancyRate: totalFacilities > 0 ? Math.round((totalReservations / (totalFacilities * daysInMonth)) * 100) : 0,
-      daily,
+      avgMonthlyOccupancy: Math.round(totalReservations / totalMonths),
+      peakMonth: peakMonth?.label,
+      peakMonthNum: peakMonth?.month,
+      occupancyRate: totalFacilities > 0
+        ? Math.round((totalReservations / (totalFacilities * totalMonths * 30)) * 100)
+        : 0,
+      monthlyBreakdown: monthly,
     };
   }
 
@@ -364,13 +493,35 @@ export class ReportsService {
 
   // ── INCOME REPORT (by Room Type & Room Number) ─────────────────
 
-  async incomeReport() {
-    const reservations = await this.prisma.reservation.findMany({
-      where: {
-        status: {
-          in: [ReservationStatus.COMPLETED, ReservationStatus.CHECKED_OUT],
-        },
+  async incomeReport(period?: string, from?: string, to?: string) {
+    const where: any = {
+      status: {
+        in: [ReservationStatus.COMPLETED, ReservationStatus.CHECKED_OUT],
       },
+    };
+
+    if (period === 'daily' && from && to) {
+      where.checkInDate = {
+        gte: new Date(from + 'T00:00:00.000Z'),
+        lte: new Date(to + 'T23:59:59.999Z'),
+      };
+    } else if (period === 'monthly' && from && to) {
+      const [fy, fm] = from.split('-').map(Number);
+      const [ty, tm] = to.split('-').map(Number);
+      where.checkInDate = {
+        gte: new Date(fy, fm - 1, 1),
+        lte: new Date(ty, tm, 0, 23, 59, 59, 999),
+      };
+    } else if (period === 'annual' && from) {
+      const y = Number(from);
+      where.checkInDate = {
+        gte: new Date(y, 0, 1),
+        lt: new Date(y + 1, 0, 1),
+      };
+    }
+
+    const reservations = await this.prisma.reservation.findMany({
+      where,
       include: {
         facilities: {
           include: {
@@ -459,9 +610,9 @@ export class ReportsService {
 
   // ── EXCEL EXPORT ───────────────────────────────────────────
 
-  async exportIncomeReportXlsx(): Promise<Buffer> {
+  async exportIncomeReportXlsx(period?: string, from?: string, to?: string): Promise<Buffer> {
     const ExcelJS = require('exceljs');
-    const data = await this.incomeReport();
+    const data = await this.incomeReport(period, from, to);
 
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'DNSC RMS';

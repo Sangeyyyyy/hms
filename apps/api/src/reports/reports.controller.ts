@@ -21,18 +21,26 @@ export class ReportsController {
   // ── Occupancy ───────────────────────────────────────────────
   @Get('occupancy/daily')
   @Roles(Role.HOSTEL_MANAGER, Role.FRONT_DESK)
-  @ApiQuery({ name: 'date', example: '2026-06-07' })
-  occupancyDaily(@Query('date') date: string) {
-    return this.service.occupancyDaily(date || new Date().toISOString().slice(0, 10));
+  @ApiQuery({ name: 'from', required: false, example: '2026-06-07' })
+  @ApiQuery({ name: 'to', required: false, example: '2026-06-17' })
+  occupancyDaily(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.service.occupancyDaily(from || new Date().toISOString().slice(0, 10), to);
   }
 
   @Get('occupancy/monthly')
   @Roles(Role.HOSTEL_MANAGER, Role.FRONT_DESK)
-  @ApiQuery({ name: 'year', example: '2026' })
-  @ApiQuery({ name: 'month', example: '6' })
-  occupancyMonthly(@Query('year') year: string, @Query('month') month: string) {
+  @ApiQuery({ name: 'from', required: false, example: '2026-01' })
+  @ApiQuery({ name: 'to', required: false, example: '2026-06' })
+  occupancyMonthly(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
     const now = new Date();
-    return this.service.occupancyMonthly(Number(year || now.getFullYear()), Number(month || now.getMonth() + 1));
+    const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    return this.service.occupancyMonthly(from || defaultMonth, to);
   }
 
   @Get('occupancy/annual')
@@ -70,15 +78,30 @@ export class ReportsController {
   @Get('income')
   @Roles(Role.HOSTEL_MANAGER, Role.FRONT_DESK)
   @ApiOperation({ summary: 'Income report grouped by room type and room number' })
-  incomeReport() {
-    return this.service.incomeReport();
+  @ApiQuery({ name: 'period', required: false, enum: ['daily', 'monthly', 'annual'] })
+  @ApiQuery({ name: 'from', required: false, description: 'Start date (YYYY-MM-DD for daily, YYYY-MM for monthly)' })
+  @ApiQuery({ name: 'to', required: false, description: 'End date (YYYY-MM-DD for daily, YYYY-MM for monthly)' })
+  incomeReport(
+    @Query('period') period?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.service.incomeReport(period, from, to);
   }
 
   @Get('income/export')
   @Roles(Role.HOSTEL_MANAGER, Role.FRONT_DESK)
   @ApiOperation({ summary: 'Export income report as Excel (.xlsx)' })
-  async exportIncomeReport(@Res() res: Response) {
-    const buffer = await this.service.exportIncomeReportXlsx();
+  @ApiQuery({ name: 'period', required: false, enum: ['daily', 'monthly', 'annual'] })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  async exportIncomeReport(
+    @Res() res: Response,
+    @Query('period') period?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    const buffer = await this.service.exportIncomeReportXlsx(period, from, to);
     res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.set('Content-Disposition', 'attachment; filename="income-report.xlsx"');
     res.set('Content-Length', String(buffer.length));
