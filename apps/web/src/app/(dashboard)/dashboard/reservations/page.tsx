@@ -15,6 +15,7 @@ import {
   Clock,
   X,
   ArrowRight,
+  Upload,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import Link from 'next/link';
@@ -158,13 +159,22 @@ export default function ReservationsPage() {
           <h1 className="text-2xl font-bold tracking-tight">Reservations</h1>
           <p className="text-muted-foreground">Manage bookings, check-ins and check-outs.</p>
         </div>
-        <Link
-          href="/dashboard/reservations/new"
-          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold rounded-lg shadow transition"
-        >
-          <Plus className="w-4 h-4" />
-          New Reservation
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/dashboard/reservations/bulk-import"
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 border border-border hover:bg-accent text-foreground font-semibold rounded-lg shadow-sm transition"
+          >
+            <Upload className="w-4 h-4" />
+            Bulk Import
+          </Link>
+          <Link
+            href="/dashboard/reservations/new"
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold rounded-lg shadow transition"
+          >
+            <Plus className="w-4 h-4" />
+            New Reservation
+          </Link>
+        </div>
       </div>
 
       {/* Summary strip */}

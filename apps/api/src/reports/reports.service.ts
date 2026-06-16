@@ -358,4 +358,266 @@ export class ReportsService {
       clientBreakdown: { internal: internalCount, external: externalCount },
     };
   }
+
+  // ── INCOME REPORT (by Room Type & Room Number) ─────────────────
+
+  async incomeReport() {
+    const reservations = await this.prisma.reservation.findMany({
+      where: {
+        status: {
+          in: [ReservationStatus.COMPLETED, ReservationStatus.CHECKED_OUT],
+        },
+      },
+      include: {
+        facilities: {
+          include: {
+            facility: {
+              include: { facilityType: true },
+            },
+          },
+        },
+      },
+    });
+
+    const groups = new Map<
+      string,
+      { roomType: string; roomNumber: string; bookings: number; income: number }
+    >();
+
+    for (const reservation of reservations) {
+      const checkIn = new Date(reservation.checkInDate);
+      const checkOut = new Date(reservation.checkOutDate);
+      const nights = Math.max(
+        1,
+        Math.round(
+          (checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24),
+        ),
+      );
+
+      for (const rf of reservation.facilities) {
+        const roomType = rf.facility.facilityType.name;
+        const roomNumber = rf.facility.facilityCode;
+        const key = `${roomType}|${roomNumber}`;
+
+        if (!groups.has(key)) {
+          groups.set(key, { roomType, roomNumber, bookings: 0, income: 0 });
+        }
+        const group = groups.get(key)!;
+        group.bookings += 1;
+        group.income += rf.rateApplied * nights;
+      }
+    }
+
+    const rows = Array.from(groups.values());
+    rows.sort((a, b) => {
+      if (b.income !== a.income) return b.income - a.income;
+      if (a.roomType !== b.roomType)
+        return a.roomType.localeCompare(b.roomType);
+      return a.roomNumber.localeCompare(b.roomNumber);
+    });
+
+    const typeMap = new Map<string, number>();
+    for (const row of rows) {
+      typeMap.set(row.roomType, (typeMap.get(row.roomType) || 0) + row.income);
+    }
+    let mostProfitableType = '';
+    let maxTypeIncome = 0;
+    for (const [type, income] of typeMap) {
+      if (income > maxTypeIncome) {
+        maxTypeIncome = income;
+        mostProfitableType = type;
+      }
+    }
+
+    const totalRevenue = rows.reduce((s, r) => s + r.income, 0);
+    const totalBookings = rows.reduce((s, r) => s + r.bookings, 0);
+    const highestEarningRoom = rows.length > 0 ? rows[0] : null;
+
+    return {
+      generatedAt: new Date().toISOString(),
+      totalRevenue: Math.round(totalRevenue * 100) / 100,
+      totalBookings,
+      mostProfitableRoomType: mostProfitableType || 'N/A',
+      highestEarningRoom: highestEarningRoom
+        ? `${highestEarningRoom.roomNumber} (${highestEarningRoom.roomType})`
+        : 'N/A',
+      rows: rows.map((r) => ({
+        roomType: r.roomType,
+        roomNumber: r.roomNumber,
+        totalBookings: r.bookings,
+        totalIncome: Math.round(r.income * 100) / 100,
+        avgIncomePerBooking:
+          r.bookings > 0
+            ? Math.round((r.income / r.bookings) * 100) / 100
+            : 0,
+      })),
+    };
+  }
+
+  // ── EXCEL EXPORT ───────────────────────────────────────────
+
+  async exportIncomeReportXlsx(): Promise<Buffer> {
+    const ExcelJS = require('exceljs');
+    const data = await this.incomeReport();
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'DNSC RMS';
+    workbook.created = new Date();
+
+    const ws = workbook.addWorksheet('Income Report');
+
+    ws.columns = [
+      { header: 'Room Type', key: 'roomType', width: 22 },
+      { header: 'Room Number', key: 'roomNumber', width: 16 },
+      { header: 'Total Bookings', key: 'totalBookings', width: 18 },
+      { header: 'Total Income', key: 'totalIncome', width: 20 },
+      { header: 'Avg Income/Booking', key: 'avgIncomePerBooking', width: 22 },
+    ];
+
+    const DARK_BLUE = 'FF1E3A5F';
+    const WHITE = 'FFFFFFFF';
+    const LIGHT_GRAY = 'FFF2F2F2';
+    const BORDER_STYLE = {
+      style: 'thin' as const,
+      color: { argb: 'FFCCCCCC' },
+    };
+    const border = {
+      top: BORDER_STYLE,
+      left: BORDER_STYLE,
+      bottom: BORDER_STYLE,
+      right: BORDER_STYLE,
+    };
+    const currencyFormat = '₱#,##0.00';
+
+    ws.mergeCells(1, 1, 1, 5);
+    const headerCell = ws.getCell('A1');
+    headerCell.value = 'DNSC RMS \u2013 Income Report by Room Type and Room Number';
+    headerCell.font = { name: 'Calibri', size: 16, bold: true, color: { argb: DARK_BLUE } };
+    headerCell.alignment = { horizontal: 'left', vertical: 'middle' };
+    ws.getRow(1).height = 32;
+
+    ws.mergeCells(2, 1, 2, 5);
+    const dateCell = ws.getCell('A2');
+    dateCell.value = `Generated: ${new Date(data.generatedAt).toLocaleString('en-PH', { timeZone: 'Asia/Manila', dateStyle: 'full', timeStyle: 'long' })}`;
+    dateCell.font = { name: 'Calibri', size: 11, italic: true, color: { argb: 'FF666666' } };
+    ws.getRow(2).height = 22;
+
+    ws.getRow(3).height = 8;
+
+    const summaryLabels = ['Total Revenue', 'Total Bookings', 'Most Profitable Room Type', 'Highest Earning Room'];
+    const summaryValues = [
+      `₱${data.totalRevenue.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`,
+      String(data.totalBookings),
+      data.mostProfitableRoomType,
+      data.highestEarningRoom,
+    ];
+
+    for (let i = 0; i < summaryLabels.length; i++) {
+      const r = 4 + i;
+      ws.mergeCells(r, 1, r, 2);
+      ws.mergeCells(r, 3, r, 5);
+
+      const labelCell = ws.getCell(r, 1);
+      labelCell.value = summaryLabels[i];
+      labelCell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: DARK_BLUE } };
+      labelCell.alignment = { horizontal: 'right', vertical: 'middle' };
+      labelCell.border = border;
+
+      const valCell = ws.getCell(r, 3);
+      valCell.value = summaryValues[i];
+      valCell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF333333' } };
+      valCell.alignment = { horizontal: 'left', vertical: 'middle' };
+      valCell.border = border;
+
+      ws.getRow(r).height = 24;
+    }
+
+    ws.getRow(8).height = 8;
+
+    const headerRow = ws.getRow(9);
+    ws.columns.forEach((col, idx) => {
+      const cell = headerRow.getCell(idx + 1);
+      cell.value = col.header;
+      cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: WHITE } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: DARK_BLUE } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.border = border;
+    });
+    headerRow.height = 28;
+
+    const lastDataRow = 9 + data.rows.length;
+    ws.autoFilter = {
+      from: { row: 9, column: 1 },
+      to: { row: lastDataRow, column: 5 },
+    };
+
+    for (let i = 0; i < data.rows.length; i++) {
+      const row = data.rows[i];
+      const excelRow = ws.getRow(10 + i);
+      const isEven = i % 2 === 0;
+
+      excelRow.getCell(1).value = row.roomType;
+      excelRow.getCell(2).value = row.roomNumber;
+      excelRow.getCell(3).value = row.totalBookings;
+      excelRow.getCell(4).value = row.totalIncome;
+      excelRow.getCell(4).numFmt = currencyFormat;
+      excelRow.getCell(5).value = row.avgIncomePerBooking;
+      excelRow.getCell(5).numFmt = currencyFormat;
+
+      for (let c = 1; c <= 5; c++) {
+        const cell = excelRow.getCell(c);
+        cell.font = { name: 'Calibri', size: 11, color: { argb: 'FF333333' } };
+        cell.alignment = {
+          horizontal: c >= 3 ? 'right' : 'left',
+          vertical: 'middle',
+        };
+        cell.border = border;
+        if (isEven) {
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: LIGHT_GRAY },
+          };
+        }
+      }
+
+      excelRow.height = 22;
+    }
+
+    const totalRowNum = 10 + data.rows.length;
+    const totalRow = ws.getRow(totalRowNum);
+    totalRow.getCell(1).value = 'TOTAL';
+    totalRow.getCell(1).font = { name: 'Calibri', size: 11, bold: true, color: { argb: DARK_BLUE } };
+    totalRow.getCell(2).value = '';
+    totalRow.getCell(3).value = data.totalBookings;
+    totalRow.getCell(3).font = { name: 'Calibri', size: 11, bold: true, color: { argb: DARK_BLUE } };
+    totalRow.getCell(4).value = data.totalRevenue;
+    totalRow.getCell(4).numFmt = currencyFormat;
+    totalRow.getCell(4).font = { name: 'Calibri', size: 11, bold: true, color: { argb: DARK_BLUE } };
+    totalRow.getCell(5).value = data.totalBookings > 0 ? data.totalRevenue / data.totalBookings : 0;
+    totalRow.getCell(5).numFmt = currencyFormat;
+    totalRow.getCell(5).font = { name: 'Calibri', size: 11, bold: true, color: { argb: DARK_BLUE } };
+
+    for (let c = 1; c <= 5; c++) {
+      const cell = totalRow.getCell(c);
+      cell.alignment = { horizontal: c >= 3 ? 'right' : 'left', vertical: 'middle' };
+      cell.border = {
+        top: { style: 'medium', color: { argb: DARK_BLUE } },
+        left: BORDER_STYLE,
+        bottom: { style: 'double', color: { argb: DARK_BLUE } },
+        right: BORDER_STYLE,
+      };
+    }
+    totalRow.height = 26;
+
+    ws.views = [{ state: 'frozen', ySplit: 9, xSplit: 0, activeCell: 'A10' }];
+
+    ws.pageSetup.orientation = 'landscape';
+    ws.pageSetup.fitToPage = true;
+    ws.pageSetup.fitToWidth = 1;
+    ws.pageSetup.paperSize = 9;
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    return Buffer.from(buffer);
+  }
 }

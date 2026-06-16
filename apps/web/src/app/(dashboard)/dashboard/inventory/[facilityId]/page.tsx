@@ -44,16 +44,16 @@ interface Facility {
 }
 
 const CONDITION_STYLES: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
-  GOOD: { label: 'Good', color: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30', icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
-  WORN: { label: 'Worn', color: 'bg-amber-500/20 text-amber-400 border-amber-500/30', icon: <AlertTriangle className="w-3.5 h-3.5" /> },
-  DAMAGED: { label: 'Damaged', color: 'bg-red-500/20 text-red-400 border-red-500/30', icon: <AlertTriangle className="w-3.5 h-3.5" /> },
-  MISSING: { label: 'Missing', color: 'bg-slate-500/20 text-slate-400 border-slate-500/30', icon: <X className="w-3.5 h-3.5" /> },
+  GOOD: { label: 'Good', color: 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-700/50', icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
+  WORN: { label: 'Worn', color: 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-700/50', icon: <AlertTriangle className="w-3.5 h-3.5" /> },
+  DAMAGED: { label: 'Damaged', color: 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 border-red-200 dark:border-red-700/50', icon: <AlertTriangle className="w-3.5 h-3.5" /> },
+  MISSING: { label: 'Missing', color: 'bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700', icon: <X className="w-3.5 h-3.5" /> },
 };
 
 const STATUS_STYLES: Record<string, { label: string; color: string }> = {
-  ACTIVE: { label: 'Active', color: 'bg-emerald-500/20 text-emerald-400' },
-  MAINTENANCE: { label: 'Maintenance', color: 'bg-amber-500/20 text-amber-400' },
-  DISPOSED: { label: 'Disposed', color: 'bg-slate-500/20 text-slate-400' },
+  ACTIVE: { label: 'Active', color: 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300' },
+  MAINTENANCE: { label: 'Maintenance', color: 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300' },
+  DISPOSED: { label: 'Disposed', color: 'bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400' },
 };
 
 export default function FacilityInventoryPage() {
@@ -154,33 +154,33 @@ export default function FacilityInventoryPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-emerald-400 animate-spin" />
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-8 h-8 text-primary animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 p-6">
+    <div className="space-y-6">
       {/* Header */}
       <div className="mb-8">
         <button
           onClick={() => router.back()}
-          className="flex items-center gap-2 text-slate-400 hover:text-white mb-4 transition-colors text-sm"
+          className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-4 transition-colors text-sm"
         >
           <ArrowLeft className="w-4 h-4" /> Back to Inventory
         </button>
 
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center">
-              <Package className="w-6 h-6 text-emerald-400" />
+            <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+              <Package className="w-6 h-6 text-primary" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-white">
+              <h1 className="text-2xl font-bold text-foreground">
                 {facility?.facilityCode ?? 'Facility'} Inventory
               </h1>
-              <p className="text-slate-400 text-sm">
+              <p className="text-muted-foreground text-sm">
                 {facility?.building} · {facility?.facilityType?.name} · {inventory.length} item type{inventory.length !== 1 ? 's' : ''} assigned
               </p>
             </div>
@@ -188,7 +188,7 @@ export default function FacilityInventoryPage() {
           <button
             onClick={openAddModal}
             disabled={availableItems.length === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-all"
+            className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed text-primary-foreground rounded-lg text-sm font-medium transition-all"
           >
             <Plus className="w-4 h-4" /> Assign Item
           </button>
@@ -196,7 +196,7 @@ export default function FacilityInventoryPage() {
       </div>
 
       {error && (
-        <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">{error}</div>
+        <div className="mb-4 p-3 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-sm">{error}</div>
       )}
 
       {/* Stats row */}
@@ -218,7 +218,7 @@ export default function FacilityInventoryPage() {
 
       {/* Inventory grouped by category */}
       {inventory.length === 0 ? (
-        <div className="text-center py-20 text-slate-500">
+        <div className="text-center py-20 text-muted-foreground">
           <Package className="w-12 h-12 mx-auto mb-3 opacity-30" />
           <p className="text-lg">No items assigned to this facility yet.</p>
           <p className="text-sm">Click &ldquo;Assign Item&rdquo; to get started.</p>
@@ -226,23 +226,23 @@ export default function FacilityInventoryPage() {
       ) : (
         <div className="space-y-6">
           {Object.entries(grouped).map(([category, entries]) => (
-            <div key={category} className="bg-slate-900/60 border border-slate-700/50 rounded-2xl overflow-hidden">
-              <div className="px-5 py-3 border-b border-slate-700/50 bg-slate-800/30">
-                <h3 className="text-sm font-semibold text-slate-300">{category}</h3>
+            <div key={category} className="bg-card border border-border rounded-2xl overflow-hidden">
+              <div className="px-5 py-3 border-b border-border bg-muted/50">
+                <h3 className="text-sm font-semibold text-foreground">{category}</h3>
               </div>
-              <div className="divide-y divide-slate-700/30">
+              <div className="divide-y divide-border">
                 {entries.map((entry) => {
                   const cond = CONDITION_STYLES[entry.condition];
                   const stat = STATUS_STYLES[entry.status];
                   return (
-                    <div key={entry.id} className="flex items-center justify-between px-5 py-3 hover:bg-slate-800/30 transition-colors group">
+                    <div key={entry.id} className="flex items-center justify-between px-5 py-3 hover:bg-accent/50 transition-colors group">
                       <div className="flex items-center gap-4">
-                        <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400">
+                        <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center text-muted-foreground">
                           <Package className="w-4 h-4" />
                         </div>
                         <div>
-                          <p className="text-white font-medium">{entry.item.name}</p>
-                          <p className="text-slate-500 text-xs">Quantity: {entry.quantity}</p>
+                          <p className="text-foreground font-medium">{entry.item.name}</p>
+                          <p className="text-muted-foreground text-xs">Quantity: {entry.quantity}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
@@ -255,14 +255,14 @@ export default function FacilityInventoryPage() {
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button
                             onClick={() => openEditModal(entry)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-all"
+                            className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-all"
                             title="Edit"
                           >
                             <Wrench className="w-3.5 h-3.5" />
                           </button>
                           <button
                             onClick={() => removeEntry(entry.itemId)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                            className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all"
                             title="Remove"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -280,13 +280,13 @@ export default function FacilityInventoryPage() {
 
       {/* Add/Edit Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700/50 rounded-2xl p-6 w-full max-w-md">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-md shadow-xl">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-lg font-bold text-white">
+              <h2 className="text-lg font-bold text-foreground">
                 {editingEntry ? `Edit: ${editingEntry.item.name}` : 'Assign Item to Facility'}
               </h2>
-              <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-white">
+              <button onClick={() => setShowModal(false)} className="text-muted-foreground hover:text-foreground">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -294,11 +294,11 @@ export default function FacilityInventoryPage() {
             <div className="space-y-4">
               {!editingEntry && (
                 <div>
-                  <label className="block text-sm text-slate-400 mb-1.5">Item</label>
+                  <label className="block text-sm text-foreground mb-1.5">Item</label>
                   <select
                     value={selectedItemId}
                     onChange={(e) => setSelectedItemId(e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-600/50 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500/50"
+                    className="w-full bg-background border border-input rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                   >
                     {availableItems.map((item) => (
                       <option key={item.id} value={item.id}>
@@ -309,21 +309,21 @@ export default function FacilityInventoryPage() {
                 </div>
               )}
               <div>
-                <label className="block text-sm text-slate-400 mb-1.5">Quantity</label>
+                <label className="block text-sm text-foreground mb-1.5">Quantity</label>
                 <input
                   type="number"
                   min={0}
                   value={qty}
                   onChange={(e) => setQty(Number(e.target.value))}
-                  className="w-full bg-slate-800 border border-slate-600/50 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500/50"
+                  className="w-full bg-background border border-input rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                 />
               </div>
               <div>
-                <label className="block text-sm text-slate-400 mb-1.5">Condition</label>
+                <label className="block text-sm text-foreground mb-1.5">Condition</label>
                 <select
                   value={condition}
                   onChange={(e) => setCondition(e.target.value as typeof condition)}
-                  className="w-full bg-slate-800 border border-slate-600/50 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500/50"
+                  className="w-full bg-background border border-input rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                 >
                   <option value="GOOD">Good</option>
                   <option value="WORN">Worn</option>
@@ -332,11 +332,11 @@ export default function FacilityInventoryPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm text-slate-400 mb-1.5">Status</label>
+                <label className="block text-sm text-foreground mb-1.5">Status</label>
                 <select
                   value={status}
                   onChange={(e) => setStatus(e.target.value as typeof status)}
-                  className="w-full bg-slate-800 border border-slate-600/50 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500/50"
+                  className="w-full bg-background border border-input rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                 >
                   <option value="ACTIVE">Active</option>
                   <option value="MAINTENANCE">Maintenance</option>
@@ -348,14 +348,14 @@ export default function FacilityInventoryPage() {
             <div className="flex gap-3 mt-6">
               <button
                 onClick={() => setShowModal(false)}
-                className="flex-1 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm transition-all"
+                className="flex-1 px-4 py-2 bg-muted hover:bg-muted/80 text-foreground border border-border rounded-lg text-sm font-medium transition-all"
               >
                 Cancel
               </button>
               <button
                 onClick={saveEntry}
                 disabled={saving || (!editingEntry && !selectedItemId)}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-all"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-primary hover:bg-primary/90 disabled:opacity-50 text-primary-foreground rounded-lg text-sm font-medium transition-all"
               >
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                 Save

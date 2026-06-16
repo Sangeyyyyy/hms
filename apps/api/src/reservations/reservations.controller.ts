@@ -23,6 +23,7 @@ import { ReservationsService } from './reservations.service';
 import { CreateReservationDto } from './dto/create-reservation.dto';
 import { UpdateReservationDto } from './dto/update-reservation.dto';
 import { QueryReservationsDto } from './dto/query-reservations.dto';
+import { BulkImportReservationsDto } from './dto/bulk-import-reservations.dto';
 import { CreateChargeDto } from './dto/create-charge.dto';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -48,6 +49,17 @@ export class ReservationsController {
     @GetUser() user: CurrentUser,
   ) {
     return this.service.create(dto, user.sub);
+  }
+
+  @Post('bulk-import')
+  @ApiOperation({ summary: 'Bulk import past/historical bookings (Manager only)' })
+  @Roles(Role.HOSTEL_MANAGER)
+  @ApiResponse({ status: 201, description: 'Bulk import processed' })
+  bulkImport(
+    @Body() dto: BulkImportReservationsDto,
+    @GetUser() user: CurrentUser,
+  ) {
+    return this.service.bulkImport(dto, user.sub);
   }
 
   @Get()

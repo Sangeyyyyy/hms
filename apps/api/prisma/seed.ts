@@ -11,10 +11,10 @@ async function main() {
   // Upsert Hostel Manager
   const managerPassword = await bcrypt.hash('Manager@123', SALT_ROUNDS);
   const manager = await prisma.user.upsert({
-    where: { email: 'manager@dnsc-hostel.com' },
+    where: { email: 'manager@hostel.com' },
     update: {},
     create: {
-      email: 'manager@dnsc-hostel.com',
+      email: 'manager@hostel.com',
       password: managerPassword,
       firstName: 'Admin',
       lastName: 'Manager',
@@ -26,10 +26,10 @@ async function main() {
   // Upsert Front Desk Staff
   const frontDeskPassword = await bcrypt.hash('FrontDesk@123', SALT_ROUNDS);
   const frontDesk = await prisma.user.upsert({
-    where: { email: 'frontdesk@dnsc-hostel.com' },
+    where: { email: 'frontdesk@hostel.com' },
     update: {},
     create: {
-      email: 'frontdesk@dnsc-hostel.com',
+      email: 'frontdesk@hostel.com',
       password: frontDeskPassword,
       firstName: 'Front',
       lastName: 'Desk',
@@ -45,11 +45,10 @@ async function main() {
   // Seeding Facility Types
   console.log('🌱 Seeding Facility Types...');
   const facilityTypesData = [
-    { name: 'VIP', baseCapacity: 1, maxCapacity: 2, defaultRate: 2500.0 },
-    { name: 'Tri-Bedroom', baseCapacity: 3, maxCapacity: 3, defaultRate: 1500.0 },
-    { name: 'Dorm', baseCapacity: 4, maxCapacity: 8, defaultRate: 500.0 },
-    { name: 'Family', baseCapacity: 4, maxCapacity: 6, defaultRate: 3000.0 },
-    { name: 'Function Hall', baseCapacity: 50, maxCapacity: 150, defaultRate: 8000.0 },
+    { name: 'VIP Room', baseCapacity: 1, maxCapacity: 2, defaultRate: 1800.0 },
+    { name: 'Tri Bedroom', baseCapacity: 3, maxCapacity: 3, defaultRate: 1350.0 },
+    { name: 'Dorm Type', baseCapacity: 4, maxCapacity: 8, defaultRate: 1200.0 },
+    { name: 'Family Room', baseCapacity: 4, maxCapacity: 6, defaultRate: 1650.0 },
   ];
 
   const facilityTypes: any = {};
@@ -69,14 +68,19 @@ async function main() {
   // Seeding Facilities
   console.log('🌱 Seeding Facilities...');
   const facilitiesData = [
-    { building: 'Building A', facilityCode: 'VIP-101', facilityTypeId: facilityTypes['VIP'].id },
-    { building: 'Building A', facilityCode: 'VIP-102', facilityTypeId: facilityTypes['VIP'].id },
-    { building: 'Building B', facilityCode: 'TRI-201', facilityTypeId: facilityTypes['Tri-Bedroom'].id },
-    { building: 'Building B', facilityCode: 'TRI-202', facilityTypeId: facilityTypes['Tri-Bedroom'].id },
-    { building: 'Building C', facilityCode: 'DORM-301', facilityTypeId: facilityTypes['Dorm'].id },
-    { building: 'Building C', facilityCode: 'DORM-302', facilityTypeId: facilityTypes['Dorm'].id },
-    { building: 'Building A', facilityCode: 'FAM-401', facilityTypeId: facilityTypes['Family'].id },
-    { building: 'Building D', facilityCode: 'HALL-100', facilityTypeId: facilityTypes['Function Hall'].id },
+    { building: 'Building A', facilityCode: 'A1', facilityTypeId: facilityTypes['VIP Room'].id },
+    { building: 'Building A', facilityCode: 'A2', facilityTypeId: facilityTypes['VIP Room'].id },
+    { building: 'Building A', facilityCode: 'A3', facilityTypeId: facilityTypes['VIP Room'].id },
+    { building: 'Building B', facilityCode: 'B1', facilityTypeId: facilityTypes['Tri Bedroom'].id },
+    { building: 'Building B', facilityCode: 'B2', facilityTypeId: facilityTypes['Tri Bedroom'].id },
+    { building: 'Building C', facilityCode: 'C1', facilityTypeId: facilityTypes['Dorm Type'].id },
+    { building: 'Building C', facilityCode: 'C2', facilityTypeId: facilityTypes['Dorm Type'].id },
+    { building: 'Building C', facilityCode: 'C3', facilityTypeId: facilityTypes['Dorm Type'].id },
+    { building: 'Building C', facilityCode: 'C4', facilityTypeId: facilityTypes['Dorm Type'].id },
+    { building: 'Building D', facilityCode: 'D1', facilityTypeId: facilityTypes['Family Room'].id },
+    { building: 'Building D', facilityCode: 'D2', facilityTypeId: facilityTypes['Family Room'].id },
+    { building: 'Building D', facilityCode: 'D3', facilityTypeId: facilityTypes['Family Room'].id },
+    { building: 'Building D', facilityCode: 'D4', facilityTypeId: facilityTypes['Family Room'].id },
   ];
 
   for (const f of facilitiesData) {
@@ -134,60 +138,58 @@ async function main() {
 
   // Auto-assign default inventory to existing facilities
   console.log('🌱 Assigning default inventory to facilities...');
-  const facilities = await prisma.facility.findMany();
+  const facilities = await prisma.facility.findMany({ include: { facilityType: true } });
   for (const facility of facilities) {
-    // Determine default assets based on facility type code or name
     let assetsToAssign: { name: string; quantity: number }[] = [];
-    if (facility.facilityCode.startsWith('VIP')) {
-      assetsToAssign = [
-        { name: 'Bed', quantity: 1 },
-        { name: 'Mattress', quantity: 1 },
-        { name: 'Pillow', quantity: 2 },
-        { name: 'Blanket', quantity: 2 },
-        { name: 'Aircon', quantity: 1 },
-        { name: 'TV', quantity: 1 },
-        { name: 'Remote', quantity: 1 },
-        { name: 'Chair', quantity: 2 },
-        { name: 'Table', quantity: 1 },
-      ];
-    } else if (facility.facilityCode.startsWith('TRI')) {
-      assetsToAssign = [
-        { name: 'Bed', quantity: 3 },
-        { name: 'Mattress', quantity: 3 },
-        { name: 'Pillow', quantity: 3 },
-        { name: 'Blanket', quantity: 3 },
-        { name: 'Aircon', quantity: 1 },
-        { name: 'Chair', quantity: 3 },
-        { name: 'Table', quantity: 1 },
-      ];
-    } else if (facility.facilityCode.startsWith('DORM')) {
-      assetsToAssign = [
-        { name: 'Bed', quantity: 8 },
-        { name: 'Mattress', quantity: 8 },
-        { name: 'Pillow', quantity: 8 },
-        { name: 'Blanket', quantity: 8 },
-        { name: 'Aircon', quantity: 2 },
-        { name: 'Chair', quantity: 8 },
-        { name: 'Table', quantity: 2 },
-      ];
-    } else if (facility.facilityCode.startsWith('FAM')) {
-      assetsToAssign = [
-        { name: 'Bed', quantity: 4 },
-        { name: 'Mattress', quantity: 4 },
-        { name: 'Pillow', quantity: 6 },
-        { name: 'Blanket', quantity: 6 },
-        { name: 'Aircon', quantity: 2 },
-        { name: 'TV', quantity: 1 },
-        { name: 'Remote', quantity: 1 },
-        { name: 'Chair', quantity: 6 },
-        { name: 'Table', quantity: 2 },
-      ];
-    } else if (facility.facilityCode.startsWith('HALL')) {
-      assetsToAssign = [
-        { name: 'Chair', quantity: 100 },
-        { name: 'Table', quantity: 10 },
-        { name: 'Aircon', quantity: 4 },
-      ];
+    switch (facility.facilityType.name) {
+      case 'VIP Room':
+        assetsToAssign = [
+          { name: 'Bed', quantity: 1 },
+          { name: 'Mattress', quantity: 1 },
+          { name: 'Pillow', quantity: 2 },
+          { name: 'Blanket', quantity: 2 },
+          { name: 'Aircon', quantity: 1 },
+          { name: 'TV', quantity: 1 },
+          { name: 'Remote', quantity: 1 },
+          { name: 'Chair', quantity: 2 },
+          { name: 'Table', quantity: 1 },
+        ];
+        break;
+      case 'Tri Bedroom':
+        assetsToAssign = [
+          { name: 'Bed', quantity: 3 },
+          { name: 'Mattress', quantity: 3 },
+          { name: 'Pillow', quantity: 3 },
+          { name: 'Blanket', quantity: 3 },
+          { name: 'Aircon', quantity: 1 },
+          { name: 'Chair', quantity: 3 },
+          { name: 'Table', quantity: 1 },
+        ];
+        break;
+      case 'Dorm Type':
+        assetsToAssign = [
+          { name: 'Bed', quantity: 8 },
+          { name: 'Mattress', quantity: 8 },
+          { name: 'Pillow', quantity: 8 },
+          { name: 'Blanket', quantity: 8 },
+          { name: 'Aircon', quantity: 2 },
+          { name: 'Chair', quantity: 8 },
+          { name: 'Table', quantity: 2 },
+        ];
+        break;
+      case 'Family Room':
+        assetsToAssign = [
+          { name: 'Bed', quantity: 4 },
+          { name: 'Mattress', quantity: 4 },
+          { name: 'Pillow', quantity: 6 },
+          { name: 'Blanket', quantity: 6 },
+          { name: 'Aircon', quantity: 2 },
+          { name: 'TV', quantity: 1 },
+          { name: 'Remote', quantity: 1 },
+          { name: 'Chair', quantity: 6 },
+          { name: 'Table', quantity: 2 },
+        ];
+        break;
     }
 
     for (const asset of assetsToAssign) {

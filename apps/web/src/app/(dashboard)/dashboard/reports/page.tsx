@@ -3,13 +3,22 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   BarChart3, TrendingUp, Users, Building2, Calendar,
-  ChevronDown, Loader2, RefreshCw, FileText, Download,
-  ArrowUpRight, ArrowDownRight, Minus, AlertCircle
+  Loader2, RefreshCw, AlertCircle, Printer,
+  FileSpreadsheet, DollarSign
 } from 'lucide-react';
 import apiClient from '@/lib/api-client';
 import { useAuth } from '@/contexts/auth.context';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function exportCsv(filename: string, headers: string[], rows: string[][]) {
+  const csv = [headers.join(','), ...rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
 
 // ── SVG Bar Chart ──────────────────────────────────────────────
 function BarChart({ data, valueKey, labelKey, color = '#8b5cf6', format = 'number' }: {
@@ -68,14 +77,11 @@ function PeriodSelect({ period, setPeriod }: { period: string; setPeriod: (p: st
 
 export default function ReportsPage() {
   const { user } = useAuth();
-  const [tab, setTab] = useState<'occupancy'|'revenue'|'reservations'>('occupancy');
+  const [tab, setTab] = useState<'occupancy'|'income'>('occupancy');
   const [period, setPeriod] = useState('monthly');
   const [date, setDate] = useState(new Date().toISOString().slice(0,10));
   const [year, setYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState(new Date().getMonth() + 1);
-  const [clientType, setClientType] = useState<'INTERNAL'|'EXTERNAL'>('INTERNAL');
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
   const [data, setData] = useState<any>(null);
   const [summary, setSummary] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -93,29 +99,54 @@ export default function ReportsPage() {
         if (period === 'daily') { endpoint = '/reports/occupancy/daily'; params.date = date; }
         else if (period === 'monthly') { endpoint = '/reports/occupancy/monthly'; params.year = year; params.month = month; }
         else { endpoint = '/reports/occupancy/annual'; params.year = year; }
-      } else if (tab === 'revenue') {
-        if (period === 'daily') { endpoint = '/reports/revenue/daily'; params.date = date; }
-        else if (period === 'monthly') { endpoint = '/reports/revenue/monthly'; params.year = year; params.month = month; }
-        else { endpoint = '/reports/revenue/annual'; params.year = year; }
       } else {
-        endpoint = '/reports/reservations';
-        params.clientType = clientType;
-        if (fromDate) params.from = fromDate;
-        if (toDate) params.to = toDate;
+        endpoint = '/reports/income';
       }
       const r = await apiClient.get(endpoint, { params });
       setData(r.data);
     } catch (e) { setData(null); }
     finally { setLoading(false); }
-  }, [tab, period, date, year, month, clientType, fromDate, toDate]);
+  }, [tab, period, date, year, month]);
 
   useEffect(() => { fetchSummary(); }, [fetchSummary]);
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  // ── Export (CSV for occupancy, Excel for income) ──────────
+  const exportCsvReport = () => {
+    if (!data) return;
+    const periodLabel = period === 'daily' ? date : period === 'monthly' ? `${MONTHS[month-1]} ${year}` : String(year);
+
+    if (tab === 'occupancy') {
+      const rows: string[][] = [];
+      const label = `${data.totalFacilities} facilities · ${data.occupancyRate}% occupancy`;
+      rows.push([`Occupancy Report (${periodLabel})`, label, '', '']);
+      rows.push([]);
+      if (period === 'daily' && data.byStatus) {
+        rows.push(['Status', 'Count', '', '']);
+        data.byStatus.forEach((s: any) => rows.push([s.status, String(s.count), '', '']));
+        exportCsv(`occupancy-${periodLabel.replace(/\s/g,'-')}.csv`, ['Status', 'Count', '', ''], rows.slice(2));
+      } else if (period === 'monthly' && data.daily) {
+        rows.push(['Day', 'Reservations', 'Facility Count', '']);
+        data.daily.forEach((d: any) => rows.push([String(d.day), String(d.count), String(d.facilityCount), '']));
+        exportCsv(`occupancy-${periodLabel.replace(/\s/g,'-')}.csv`, ['Day', 'Reservations', 'Facility Count'], rows.slice(2));
+      } else if (period === 'annual' && data.monthly) {
+        rows.push(['Month', 'Reservations', 'Facility Count', '']);
+        data.monthly.forEach((m: any) => rows.push([m.label, String(m.count), String(m.facilityCount), '']));
+        exportCsv(`occupancy-${year}.csv`, ['Month', 'Reservations', 'Facility Count'], rows.slice(2));
+      }
+    } else if (tab === 'income' && data.rows) {
+      apiClient.get('/reports/income/export', { responseType: 'blob' }).then(r => {
+        const url = URL.createObjectURL(new Blob([r.data]));
+        const a = document.createElement('a'); a.href = url; a.download = `income-report-${new Date().toISOString().slice(0, 10)}.xlsx`;
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a); URL.revokeObjectURL(url);
+      });
+    }
+  };
+
   const tabs = [
     { key: 'occupancy', label: 'Occupancy', icon: Building2 },
-    { key: 'revenue', label: 'Revenue', icon: TrendingUp },
-    { key: 'reservations', label: 'Reservations', icon: Users },
+    { key: 'income', label: 'Income Report', icon: DollarSign },
   ] as const;
 
   if (!user || user.role !== 'HOSTEL_MANAGER') {
@@ -132,6 +163,14 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-6">
+      <style>{`
+        @media print {
+          #sidebar-toggle, nav, .sidebar-nav, aside, header, .no-print { display: none !important; }
+          body { background: white !important; }
+          @page { margin: 15mm; }
+        }
+      `}</style>
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -143,9 +182,19 @@ export default function ReportsPage() {
             <p className="text-muted-foreground text-sm">DNSC Hostel — Operational Overview</p>
           </div>
         </div>
-        <button onClick={fetchData} className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg shadow-sm text-sm font-medium transition-all">
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
-        </button>
+        <div className="flex items-center gap-2 no-print">
+          <button onClick={exportCsvReport} disabled={!data}
+            className="flex items-center gap-2 px-3 py-2 bg-muted hover:bg-accent disabled:opacity-40 text-foreground border border-border rounded-lg text-sm font-medium transition-all">
+            <FileSpreadsheet className="w-4 h-4" /> {tab === 'income' ? 'Excel' : 'CSV'}
+          </button>
+          <button onClick={() => window.print()} disabled={!data}
+            className="flex items-center gap-2 px-3 py-2 bg-muted hover:bg-accent disabled:opacity-40 text-foreground border border-border rounded-lg text-sm font-medium transition-all">
+            <Printer className="w-4 h-4" /> Print
+          </button>
+          <button onClick={fetchData} className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg shadow-sm text-sm font-medium transition-all">
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
+          </button>
+        </div>
       </div>
 
       {/* Summary Stats */}
@@ -159,7 +208,7 @@ export default function ReportsPage() {
       )}
 
       {/* Tab Navigation */}
-      <div className="flex gap-2 border-b border-border pb-0">
+      <div className="flex gap-2 border-b border-border pb-0 no-print">
         {tabs.map(t => (
           <button key={t.key} onClick={() => setTab(t.key)}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-all -mb-px ${tab === t.key ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
@@ -169,46 +218,29 @@ export default function ReportsPage() {
       </div>
 
       {/* Controls */}
-      <div className="flex flex-wrap items-center gap-3">
-        {tab !== 'reservations' ? (
-          <>
-            <PeriodSelect period={period} setPeriod={setPeriod} />
-            {period === 'daily' && (
-              <input type="date" value={date} onChange={e => setDate(e.target.value)}
-                className="bg-background border border-input rounded-lg px-3 py-1.5 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" />
-            )}
-            {period === 'monthly' && (
-              <div className="flex gap-2">
-                <input type="number" value={year} min={2020} max={2099} onChange={e => setYear(Number(e.target.value))}
-                  className="w-24 bg-background border border-input rounded-lg px-3 py-1.5 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="Year" />
-                <select value={month} onChange={e => setMonth(Number(e.target.value))}
-                  className="bg-background border border-input rounded-lg px-3 py-1.5 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50">
-                  {MONTHS.map((m, i) => <option key={i} value={i+1}>{m}</option>)}
-                </select>
-              </div>
-            )}
-            {period === 'annual' && (
+      {tab === 'occupancy' && (
+        <div className="flex flex-wrap items-center gap-3 no-print">
+          <PeriodSelect period={period} setPeriod={setPeriod} />
+          {period === 'daily' && (
+            <input type="date" value={date} onChange={e => setDate(e.target.value)}
+              className="bg-background border border-input rounded-lg px-3 py-1.5 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" />
+          )}
+          {period === 'monthly' && (
+            <div className="flex gap-2">
               <input type="number" value={year} min={2020} max={2099} onChange={e => setYear(Number(e.target.value))}
-                className="w-24 bg-background border border-input rounded-lg px-3 py-1.5 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" />
-            )}
-          </>
-        ) : (
-          <div className="flex flex-wrap gap-3">
-            <div className="flex gap-1 p-1 bg-muted rounded-lg border border-border">
-              {(['INTERNAL','EXTERNAL'] as const).map(ct => (
-                <button key={ct} onClick={() => setClientType(ct)}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${clientType === ct ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
-                  {ct === 'INTERNAL' ? '🏛️ Internal' : '🌐 External'}
-                </button>
-              ))}
+                className="w-24 bg-background border border-input rounded-lg px-3 py-1.5 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="Year" />
+              <select value={month} onChange={e => setMonth(Number(e.target.value))}
+                className="bg-background border border-input rounded-lg px-3 py-1.5 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50">
+                {MONTHS.map((m, i) => <option key={i} value={i+1}>{m}</option>)}
+              </select>
             </div>
-            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} placeholder="From"
-              className="bg-background border border-input rounded-lg px-3 py-1.5 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" />
-            <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} placeholder="To"
-              className="bg-background border border-input rounded-lg px-3 py-1.5 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" />
-          </div>
-        )}
-      </div>
+          )}
+          {period === 'annual' && (
+            <input type="number" value={year} min={2020} max={2099} onChange={e => setYear(Number(e.target.value))}
+              className="w-24 bg-background border border-input rounded-lg px-3 py-1.5 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" />
+          )}
+        </div>
+      )}
 
       {/* Report Content */}
       {loading ? (
@@ -272,136 +304,56 @@ export default function ReportsPage() {
             </div>
           )}
 
-          {/* REVENUE */}
-          {tab === 'revenue' && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                {[
-                  { label: 'Total Charges', value: `₱${(data.totalCharges||0).toLocaleString(undefined,{minimumFractionDigits:2})}`, color: '#3b82f6' },
-                  { label: 'Total Collected', value: `₱${(data.totalPaid||0).toLocaleString(undefined,{minimumFractionDigits:2})}`, color: '#10b981' },
-                  { label: 'Outstanding Balance', value: `₱${(data.totalBalance||0).toLocaleString(undefined,{minimumFractionDigits:2})}`, color: data.totalBalance > 0 ? '#ef4444' : '#10b981' },
-                  { label: 'Collection Rate', value: `${data.collectionRate||0}%`, color: '#8b5cf6' },
-                ].map(stat => (
-                  <div key={stat.label} className="bg-card shadow-sm border border-border rounded-xl p-5">
-                    <p className="text-muted-foreground text-sm mb-1">{stat.label}</p>
-                    <p className="text-xl font-bold" style={{ color: stat.color }}>{stat.value}</p>
-                  </div>
-                ))}
-              </div>
 
-              {data.paymentByMethod && Object.keys(data.paymentByMethod).length > 0 && (
-                <div className="bg-card shadow-sm border border-border rounded-xl p-5">
-                  <h3 className="text-foreground font-semibold mb-4">Payment by Method</h3>
-                  <div className="space-y-4">
-                    {Object.entries(data.paymentByMethod).map(([method, amount]: any) => (
-                      <div key={method} className="flex items-center gap-3">
-                        <span className="text-muted-foreground text-sm w-40 font-medium">{method.replace('_',' ')}</span>
-                        <div className="flex-1 bg-muted rounded-full h-3">
-                          <div className="bg-emerald-500 h-3 rounded-full" style={{ width: `${Math.max((amount/Math.max(data.totalPaid,1))*100, amount>0?4:0)}%` }} />
-                        </div>
-                        <span className="text-foreground font-bold text-sm">₱{Number(amount).toLocaleString(undefined,{minimumFractionDigits:2})}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
 
-              {period === 'monthly' && data.daily && (
-                <div className="bg-card shadow-sm border border-border rounded-xl p-5">
-                  <h3 className="text-foreground font-semibold mb-4">Daily Revenue — {MONTHS[month-1]} {year}</h3>
-                  <BarChart data={data.daily} valueKey="payments" labelKey="day" color="#10b981" format="currency" />
-                </div>
-              )}
-              {period === 'annual' && data.monthly && (
-                <div className="bg-card shadow-sm border border-border rounded-xl p-5">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-foreground font-semibold">Monthly Revenue — {year}</h3>
-                    {data.peakMonth && <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full font-semibold border border-emerald-200">Peak: {data.peakMonth}</span>}
-                  </div>
-                  <BarChart data={data.monthly} valueKey="payments" labelKey="label" color="#10b981" format="currency" />
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* RESERVATIONS */}
-          {tab === 'reservations' && data.reservations && (
+          {/* INCOME REPORT */}
+          {tab === 'income' && data.rows && (
             <div className="space-y-6">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <div className="bg-card shadow-sm border border-border rounded-xl p-5">
-                  <p className="text-muted-foreground text-sm">Total</p>
-                  <p className="text-3xl font-bold text-foreground">{data.total}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{clientType} Clients</p>
+                  <p className="text-muted-foreground text-sm mb-1">Total Revenue</p>
+                  <p className="text-2xl font-bold text-blue-600">₱{data.totalRevenue.toLocaleString(undefined,{minimumFractionDigits:2})}</p>
                 </div>
                 <div className="bg-card shadow-sm border border-border rounded-xl p-5">
-                  <p className="text-muted-foreground text-sm">Total Revenue</p>
-                  <p className="text-xl font-bold text-blue-600">₱{(data.totalRevenue||0).toLocaleString(undefined,{minimumFractionDigits:2})}</p>
+                  <p className="text-muted-foreground text-sm mb-1">Total Bookings</p>
+                  <p className="text-2xl font-bold text-foreground">{data.totalBookings}</p>
                 </div>
                 <div className="bg-card shadow-sm border border-border rounded-xl p-5">
-                  <p className="text-muted-foreground text-sm">Total Collected</p>
-                  <p className="text-xl font-bold text-emerald-600">₱{(data.totalCollected||0).toLocaleString(undefined,{minimumFractionDigits:2})}</p>
+                  <p className="text-muted-foreground text-sm mb-1">Most Profitable Room Type</p>
+                  <p className="text-xl font-bold text-emerald-600">{data.mostProfitableRoomType}</p>
                 </div>
                 <div className="bg-card shadow-sm border border-border rounded-xl p-5">
-                  <p className="text-muted-foreground text-sm">Outstanding</p>
-                  <p className="text-xl font-bold text-rose-600">₱{((data.totalRevenue||0)-(data.totalCollected||0)).toLocaleString(undefined,{minimumFractionDigits:2})}</p>
+                  <p className="text-muted-foreground text-sm mb-1">Highest Earning Room</p>
+                  <p className="text-xl font-bold text-amber-600">{data.highestEarningRoom}</p>
                 </div>
               </div>
 
               <div className="bg-card shadow-sm border border-border rounded-xl overflow-hidden">
                 <div className="px-5 py-4 border-b border-border bg-muted/30 flex items-center justify-between">
-                  <h3 className="text-foreground font-semibold">{clientType} Client Reservations</h3>
-                  <span className="text-xs text-muted-foreground font-medium">{data.total} total</span>
+                  <h3 className="text-foreground font-semibold">Income Breakdown</h3>
+                  <span className="text-xs text-muted-foreground font-medium">{data.rows.length} rooms</span>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border bg-muted/50">
-                        <th className="px-5 py-3 text-left text-muted-foreground font-semibold">Ref No.</th>
-                        <th className="px-5 py-3 text-left text-muted-foreground font-semibold">Guest</th>
-                        <th className="px-5 py-3 text-left text-muted-foreground font-semibold">Facilities</th>
-                        <th className="px-5 py-3 text-left text-muted-foreground font-semibold">Status</th>
-                        <th className="px-5 py-3 text-right text-muted-foreground font-semibold">Charges</th>
-                        <th className="px-5 py-3 text-right text-muted-foreground font-semibold">Balance</th>
-                        <th className="px-5 py-3 text-center text-muted-foreground font-semibold">Docs</th>
+                        <th className="px-5 py-3 text-left text-muted-foreground font-semibold">Room Type</th>
+                        <th className="px-5 py-3 text-left text-muted-foreground font-semibold">Room Number</th>
+                        <th className="px-5 py-3 text-right text-muted-foreground font-semibold">Total Bookings</th>
+                        <th className="px-5 py-3 text-right text-muted-foreground font-semibold">Total Income</th>
+                        <th className="px-5 py-3 text-right text-muted-foreground font-semibold">Avg Income / Booking</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
-                      {data.reservations.length === 0 ? (
-                        <tr><td colSpan={7} className="px-5 py-10 text-center text-muted-foreground">No reservations found.</td></tr>
-                      ) : data.reservations.map((r: any) => (
-                        <tr key={r.id} className="hover:bg-muted/50 transition-colors">
-                          <td className="px-5 py-3 font-mono text-primary font-medium text-xs">{r.reservationNumber}</td>
-                          <td className="px-5 py-3">
-                            <p className="text-foreground font-semibold">{r.holderName}</p>
-                            <p className="text-muted-foreground text-xs">{r.holderEmail}</p>
-                          </td>
-                          <td className="px-5 py-3 text-muted-foreground font-medium">{r.facilities.join(', ')}</td>
-                          <td className="px-5 py-3">
-                            <span className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${
-                              r.status === 'CHECKED_IN' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                              r.status === 'CONFIRMED' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                              r.status === 'COMPLETED' ? 'bg-slate-100 text-slate-700 border-slate-200' :
-                              'bg-amber-50 text-amber-700 border-amber-200'
-                            }`}>{r.status.replace('_',' ')}</span>
-                          </td>
-                          <td className="px-5 py-3 text-right text-foreground font-semibold">₱{r.totalCharges.toLocaleString(undefined,{minimumFractionDigits:2})}</td>
-                          <td className="px-5 py-3 text-right font-medium">
-                            <span className={r.balance > 0 ? 'text-rose-600' : 'text-emerald-600'}>
-                              ₱{r.balance.toLocaleString(undefined,{minimumFractionDigits:2})}
-                            </span>
-                          </td>
-                          <td className="px-5 py-3 text-center">
-                            <div className="flex items-center justify-center gap-2">
-                              <a href={`/dashboard/reservations/${r.id}/documents/billing-statement`} target="_blank"
-                                className="p-1.5 rounded-md bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 transition-all" title="Billing Statement">
-                                <FileText className="w-4 h-4" />
-                              </a>
-                              <a href={`/dashboard/reservations/${r.id}/documents/reservation-form`} target="_blank"
-                                className="p-1.5 rounded-md bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-all" title="Reservation Form">
-                                <Download className="w-4 h-4" />
-                              </a>
-                            </div>
-                          </td>
+                      {data.rows.length === 0 ? (
+                        <tr><td colSpan={5} className="px-5 py-10 text-center text-muted-foreground">No completed or paid reservations found.</td></tr>
+                      ) : data.rows.map((r: any, i: number) => (
+                        <tr key={i} className="hover:bg-muted/50 transition-colors">
+                          <td className="px-5 py-3 font-medium text-foreground">{r.roomType}</td>
+                          <td className="px-5 py-3 text-muted-foreground font-mono">{r.roomNumber}</td>
+                          <td className="px-5 py-3 text-right text-foreground font-semibold">{r.totalBookings}</td>
+                          <td className="px-5 py-3 text-right text-foreground font-semibold text-emerald-600">₱{r.totalIncome.toLocaleString(undefined,{minimumFractionDigits:2})}</td>
+                          <td className="px-5 py-3 text-right text-foreground">₱{r.avgIncomePerBooking.toLocaleString(undefined,{minimumFractionDigits:2})}</td>
                         </tr>
                       ))}
                     </tbody>

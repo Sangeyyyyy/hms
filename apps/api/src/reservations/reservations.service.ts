@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateReservationDto } from './dto/create-reservation.dto';
 import { UpdateReservationDto } from './dto/update-reservation.dto';
 import { QueryReservationsDto } from './dto/query-reservations.dto';
+import { BulkImportReservationsDto } from './dto/bulk-import-reservations.dto';
 import { CreateChargeDto } from './dto/create-charge.dto';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { Prisma, ReservationStatus, ChargeType, PaymentMethod } from '@prisma/client';
@@ -25,12 +26,13 @@ export class ReservationsService {
       throw new BadRequestException('Check-out date must be after check-in date');
     }
 
-    const now = new Date();
-    // Allow small margin of error (15 mins) for check-ins starting right now
-    now.setMinutes(now.getMinutes() - 15);
-    if (checkIn < now) {
-      throw new BadRequestException('Check-in date cannot be in the past');
-    }
+    // Past-date check removed temporarily for adding historical bookings
+    // To restore, uncomment the block below:
+    // const now = new Date();
+    // now.setMinutes(now.getMinutes() - 15);
+    // if (checkIn < now) {
+    //   throw new BadRequestException('Check-in date cannot be in the past');
+    // }
 
     // 1. Verify all facility IDs exist and are active
     const facilities = await this.prisma.facility.findMany({
@@ -184,6 +186,137 @@ export class ReservationsService {
         },
       });
     });
+  }
+
+  // ── Bulk Import (Historical Bookings) ─────────────────────
+  async bulkImport(dto: BulkImportReservationsDto, createdById?: string) {
+    const allFacilities = await this.prisma.facility.findMany({
+      where: { isActive: true },
+      include: { facilityType: true },
+    });
+    const facilityByCode = new Map(allFacilities.map((f) => [f.facilityCode, f]));
+
+    const results: { index: number; name: string; facilityCodes: string; success: boolean; reservationNumber?: string; error?: string }[] = [];
+
+    for (let i = 0; i < dto.bookings.length; i++) {
+      const item = dto.bookings[i];
+
+      try {
+        const parts = item.name.trim().split(/\s+/);
+        if (parts.length < 2) {
+          throw new Error('Name must include at least first and last name');
+        }
+        const holderFirstName = parts[0];
+        const holderLastName = parts.slice(1).join(' ');
+
+        const checkIn = new Date(`${item.checkIn}T14:00:00.000Z`);
+        const checkOut = new Date(`${item.checkOut}T12:00:00.000Z`);
+
+        if (checkIn >= checkOut) {
+          throw new Error('Check-out date must be after check-in date');
+        }
+
+        const codeList = item.facilityCodes.split(',').map((c) => c.trim().toUpperCase());
+        const matchedFacilities = codeList.map((code) => {
+          const f = facilityByCode.get(code);
+          if (!f) throw new Error(`Facility "${code}" not found or inactive`);
+          return f;
+        });
+
+        const todayStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        const startOfDay = new Date();
+        startOfDay.setHours(0, 0, 0, 0);
+        const countToday = await this.prisma.reservation.count({
+          where: { createdAt: { gte: startOfDay } },
+        });
+        const nextSeq = (countToday + 1 + results.filter(r => r.success).length).toString().padStart(4, '0');
+        const reservationNumber = `HMS-${todayStr}-${nextSeq}`;
+
+        const nightsCount = Math.max(1, Math.ceil(
+          (checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24)
+        ));
+
+        await this.prisma.$transaction(async (tx) => {
+          const reservation = await tx.reservation.create({
+            data: {
+              reservationNumber,
+              holderFirstName,
+              holderLastName,
+              holderEmail: 'historical@booking.local',
+              holderPhone: '00000000000',
+              checkInDate: checkIn,
+              checkOutDate: checkOut,
+              status: ReservationStatus.COMPLETED,
+              clientType: 'EXTERNAL',
+              notes: `Historical booking (${checkIn.toISOString().slice(0, 10)} to ${checkOut.toISOString().slice(0, 10)})`,
+              createdById,
+            },
+          });
+
+          for (const facility of matchedFacilities) {
+            await tx.reservationFacility.create({
+              data: {
+                reservationId: reservation.id,
+                facilityId: facility.id,
+                rateApplied: facility.facilityType.defaultRate,
+              },
+            });
+          }
+
+          const chargeType = matchedFacilities.some(
+            (f) => f.facilityType.name.toUpperCase().includes('FUNCTION')
+          ) ? ChargeType.FUNCTION_HALL_CHARGE : ChargeType.ROOM_CHARGE;
+
+          const facilityList = matchedFacilities.map((f) => f.facilityCode).join(', ');
+          await tx.charge.create({
+            data: {
+              reservationId: reservation.id,
+              description: `Historical Booking - ${facilityList} (${item.name}, ${nightsCount} night${nightsCount !== 1 ? 's' : ''})`,
+              quantity: 1,
+              amount: item.totalAmount,
+              type: chargeType,
+            },
+          });
+
+          await tx.payment.create({
+            data: {
+              reservationId: reservation.id,
+              amount: item.totalAmount,
+              method: PaymentMethod.CASH,
+              paidAt: checkIn,
+            },
+          });
+        });
+
+        results.push({
+          index: i,
+          name: item.name,
+          facilityCodes: item.facilityCodes,
+          success: true,
+          reservationNumber,
+        });
+      } catch (err: any) {
+        results.push({
+          index: i,
+          name: item.name,
+          facilityCodes: item.facilityCodes,
+          success: false,
+          error: err.message,
+        });
+      }
+    }
+
+    const successCount = results.filter((r) => r.success).length;
+    const failCount = results.filter((r) => !r.success).length;
+
+    return {
+      results,
+      summary: {
+        total: dto.bookings.length,
+        success: successCount,
+        failed: failCount,
+      },
+    };
   }
 
   // ── Find All / Query ───────────────────────────────────────
