@@ -49,6 +49,12 @@ interface Reservation {
   createdAt: string;
   facilities: ReservationFacility[];
   occupants: Occupant[];
+  billingSummary?: {
+    totalCharges: number;
+    totalPayments: number;
+    remainingBalance: number;
+    paymentStatus: string;
+  };
 }
 
 const STATUS_CONFIG: Record<
@@ -275,7 +281,7 @@ export default function ReservationsPage() {
               <tbody className="divide-y divide-border">
                 {reservations.map((r) => {
                   const nights = getDurationDays(r.checkInDate, r.checkOutDate);
-                  const totalRate = r.facilities.reduce((acc, rf) => acc + rf.rateApplied * nights, 0);
+                  const totalRate = r.billingSummary?.totalCharges ?? r.facilities.reduce((acc, rf) => acc + rf.rateApplied * nights, 0);
                   return (
                     <tr key={r.id} className="hover:bg-accent/30 transition-colors group">
                       <td className="p-4">

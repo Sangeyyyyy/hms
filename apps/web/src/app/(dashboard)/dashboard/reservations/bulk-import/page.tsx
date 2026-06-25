@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import apiClient from '@/lib/api-client';
 import {
@@ -11,10 +11,28 @@ import {
   AlertCircle,
   XCircle,
   Trash2,
-  FileText,
+  Plus,
+  Search,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import Link from 'next/link';
+
+interface Facility {
+  id: string;
+  facilityCode: string;
+  building: string;
+  facilityType: { name: string; defaultRate: number };
+}
+
+interface BookingRow {
+  id: number;
+  name: string;
+  checkIn: string;
+  checkOut: string;
+  facilityCodes: string[];
+  totalAmount: number | '';
+}
 
 interface ParsedRow {
   id: number;
@@ -41,36 +59,100 @@ function nightsCount(checkIn: string, checkOut: string) {
   return Math.max(1, Math.ceil(diff / (1000 * 60 * 60 * 24)));
 }
 
+const inputCls =
+  'w-full px-3 py-2 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition';
+const labelCls = 'block text-xs font-semibold text-muted-foreground mb-1';
+
 export default function BulkImportPage() {
   const router = useRouter();
-  const [raw, setRaw] = useState('');
+  const [facilities, setFacilities] = useState<Facility[]>([]);
+  const [facilitiesLoading, setFacilitiesLoading] = useState(true);
+  const [rows, setRows] = useState<BookingRow[]>([
+    { id: 1, name: '', checkIn: '', checkOut: '', facilityCodes: [], totalAmount: '' },
+  ]);
+  const [nextId, setNextId] = useState(2);
   const [parsed, setParsed] = useState<ParsedRow[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState<ImportResult[] | null>(null);
   const [step, setStep] = useState<'input' | 'preview' | 'results'>('input');
+  const [dropdownOpen, setDropdownOpen] = useState<number | null>(null);
+  const [facilitySearch, setFacilitySearch] = useState('');
 
-  const parseText = () => {
-    const lines = raw.split('\n').filter((l) => l.trim());
-    const rows: ParsedRow[] = lines.map((line, idx) => {
-      const sep = line.includes('|') ? '|' : ',';
-      const parts = line.split(sep).map((p) => p.trim());
+  useEffect(() => {
+    apiClient
+      .get('/facilities', { params: { isActive: true, limit: 100 } })
+      .then((res) => {
+        setFacilities(Array.isArray(res.data) ? res.data : res.data.data ?? []);
+      })
+      .catch(() => toast.error('Failed to load facilities'))
+      .finally(() => setFacilitiesLoading(false));
+  }, []);
 
-      if (parts.length < 5) {
-        return { id: idx, name: line, checkIn: '', checkOut: '', facilityCodes: '', totalAmount: 0, valid: false, error: 'Need 5 fields: Name | Check-in | Check-out | Facility Codes | Amount' };
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-dropdown]')) {
+        setDropdownOpen(null);
+        setFacilitySearch('');
       }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
-      const name = parts[0];
-      const checkIn = parts[1];
-      const checkOut = parts[2];
-      const facilityCodes = parts[3].toUpperCase();
-      const amount = parseFloat(parts[4].replace(/[₱,]/g, ''));
+  const addRow = () => {
+    setRows((prev) => [
+      ...prev,
+      { id: nextId, name: '', checkIn: '', checkOut: '', facilityCodes: [], totalAmount: '' },
+    ]);
+    setNextId((n) => n + 1);
+  };
+
+  const removeRow = (id: number) => {
+    setRows((prev) => (prev.length > 1 ? prev.filter((r) => r.id !== id) : prev));
+  };
+
+  const updateRow = (id: number, field: keyof BookingRow, value: any) => {
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
+  };
+
+  const toggleFacility = (rowId: number, code: string) => {
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id === rowId
+          ? {
+              ...r,
+              facilityCodes: r.facilityCodes.includes(code)
+                ? r.facilityCodes.filter((c) => c !== code)
+                : [...r.facilityCodes, code],
+            }
+          : r
+      )
+    );
+  };
+
+  const filteredFacilities = facilities.filter(
+    (f) =>
+      f.facilityCode.toLowerCase().includes(facilitySearch.toLowerCase()) ||
+      f.building.toLowerCase().includes(facilitySearch.toLowerCase()) ||
+      f.facilityType.name.toLowerCase().includes(facilitySearch.toLowerCase())
+  );
+
+  const parseRows = () => {
+    // First pass: basic field validation
+    const parsedRows: ParsedRow[] = rows.map((r, idx) => {
+      const name = r.name.trim();
+      const checkIn = r.checkIn;
+      const checkOut = r.checkOut;
+      const facilityCodes = r.facilityCodes.join(', ');
+      const amount = r.totalAmount === '' ? NaN : Number(r.totalAmount);
 
       const errors: string[] = [];
       if (!name) errors.push('Name required');
       if (!/^\d{4}-\d{2}-\d{2}$/.test(checkIn)) errors.push('Invalid check-in date (use YYYY-MM-DD)');
       if (!/^\d{4}-\d{2}-\d{2}$/.test(checkOut)) errors.push('Invalid check-out date (use YYYY-MM-DD)');
       if (checkIn && checkOut && new Date(checkOut) <= new Date(checkIn)) errors.push('Check-out must be after check-in');
-      if (!facilityCodes) errors.push('Facility code(s) required');
+      // facilityCodes is optional for bulk import (historical records may lack room detail)
       if (isNaN(amount) || amount < 0) errors.push('Invalid amount');
 
       return {
@@ -85,19 +167,34 @@ export default function BulkImportPage() {
       };
     });
 
-    setParsed(rows);
+    // Second pass: flag duplicates within the batch (same name + same check-in date)
+    const seen = new Map<string, number>();
+    const duplicateIndices = new Set<number>();
+    parsedRows.forEach((r, idx) => {
+      if (!r.name || !r.checkIn) return;
+      const key = `${r.name.toLowerCase().trim()}|${r.checkIn}`;
+      if (seen.has(key)) {
+        duplicateIndices.add(seen.get(key)!);
+        duplicateIndices.add(idx);
+      } else {
+        seen.set(key, idx);
+      }
+    });
 
-    const invalidCount = rows.filter((r) => !r.valid).length;
+    const finalRows = parsedRows.map((r, idx) =>
+      duplicateIndices.has(idx)
+        ? { ...r, valid: false, error: (r.error ? r.error + '; ' : '') + 'Duplicate: same name & check-in date in this batch' }
+        : r
+    );
+
+    setParsed(finalRows);
+
+    const invalidCount = finalRows.filter((r) => !r.valid).length;
     if (invalidCount > 0) {
       toast.warning(`${invalidCount} row(s) have errors`);
     }
 
     setStep('preview');
-  };
-
-  const removeRow = (id: number) => {
-    setParsed((prev) => prev.filter((r) => r.id !== id));
-    if (parsed.length <= 1) setStep('input');
   };
 
   const handleSubmit = async () => {
@@ -137,15 +234,14 @@ export default function BulkImportPage() {
   };
 
   const resetForm = () => {
-    setRaw('');
+    setRows([{ id: 1, name: '', checkIn: '', checkOut: '', facilityCodes: [], totalAmount: '' }]);
+    setNextId(2);
     setParsed([]);
     setResults(null);
     setStep('input');
   };
 
   const totalAmount = parsed.filter((r) => r.valid).reduce((sum, r) => sum + r.totalAmount, 0);
-
-  const inputCls = 'w-full px-3 py-2 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition';
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -164,56 +260,216 @@ export default function BulkImportPage() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Import Past Bookings</h1>
             <p className="text-muted-foreground mt-1">
-              Paste your past bookings below — one per line in the format:
+              Fill in each row below — one booking per row. Facilities are <span className="font-semibold text-foreground">optional</span> — enter the actual charged amount even if you don't recall the exact facility codes.
             </p>
           </div>
 
           <div className="bg-card border border-border rounded-xl p-6 shadow-sm space-y-4">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <FileText className="w-4 h-4 text-primary" />
-              Format
-            </div>
-            <div className="bg-muted/50 border border-border rounded-lg p-4 text-sm font-mono text-muted-foreground leading-relaxed">
-              Guest Name | Check-in | Check-out | Facility Code(s) | Amount<br />
-              <span className="text-xs text-muted-foreground/70">
-                Example: Juan Dela Cruz | 2026-01-15 | 2026-01-17 | V101 | 10000
-              </span>
-              <br />
-              <span className="text-xs text-muted-foreground/70">
-                For multiple facilities, separate codes with commas: D201, D202
-              </span>
-            </div>
+            {facilitiesLoading ? (
+              <div className="flex items-center gap-2 py-8 justify-center">
+                <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                <span className="text-sm text-muted-foreground">Loading facilities...</span>
+              </div>
+            ) : (
+              <>
+                {/* Header */}
+                <div className="hidden lg:grid lg:grid-cols-[2fr_1.2fr_1.2fr_1.8fr_1fr_40px] gap-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide px-3">
+                  <span>Guest Name</span>
+                  <span>Check-in</span>
+                  <span>Check-out</span>
+                  <span>Facility Code(s) <span className="text-muted-foreground font-normal normal-case">(optional)</span></span>
+                  <span className="text-right">Amount</span>
+                  <span></span>
+                </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-muted-foreground mb-1.5">
-                Paste bookings below
-              </label>
-              <textarea
-                value={raw}
-                onChange={(e) => setRaw(e.target.value)}
-                rows={12}
-                placeholder={`Juan Dela Cruz | 2026-01-15 | 2026-01-17 | V101 | 10000\nMaria Santos | 2026-02-01 | 2026-02-03 | D201, D202 | 7000\nPedro Reyes | 2026-03-10 | 2026-03-11 | FH1 | 15000`}
-                className={`${inputCls} resize-y font-mono text-sm`}
-              />
-            </div>
+                {/* Rows */}
+                {rows.map((row, idx) => (
+                  <div
+                    key={row.id}
+                    className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[2fr_1.2fr_1.2fr_1.8fr_1fr_40px] gap-3 items-start p-3 rounded-lg border border-border bg-muted/30"
+                  >
+                    {/* Row label for mobile */}
+                    <span className="lg:hidden text-[10px] font-semibold text-muted-foreground uppercase">
+                      #{idx + 1} — Guest Name
+                    </span>
 
-            <div className="flex items-center justify-between pt-2">
-              <Link
-                href="/dashboard/reservations"
-                className="flex items-center gap-2 px-4 py-2 border border-border text-sm font-medium rounded-lg hover:bg-accent transition text-muted-foreground"
-              >
-                <ChevronLeft className="w-4 h-4" /> Cancel
-              </Link>
-              <button
-                type="button"
-                disabled={!raw.trim()}
-                onClick={parseText}
-                className="flex items-center gap-2 px-5 py-2.5 bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-semibold rounded-lg shadow disabled:opacity-50 disabled:cursor-not-allowed transition"
-              >
-                <Upload className="w-4 h-4" />
-                Parse & Preview
-              </button>
-            </div>
+                    {/* Name */}
+                    <div>
+                      <input
+                        type="text"
+                        placeholder="Juan Dela Cruz"
+                        value={row.name}
+                        onChange={(e) => updateRow(row.id, 'name', e.target.value)}
+                        className={inputCls}
+                      />
+                    </div>
+
+                    {/* Check-in */}
+                    <div>
+                      <span className="lg:hidden text-[10px] font-semibold text-muted-foreground uppercase block mb-0.5">
+                        Check-in
+                      </span>
+                      <input
+                        type="date"
+                        value={row.checkIn}
+                        onChange={(e) => updateRow(row.id, 'checkIn', e.target.value)}
+                        className={inputCls}
+                      />
+                    </div>
+
+                    {/* Check-out */}
+                    <div>
+                      <span className="lg:hidden text-[10px] font-semibold text-muted-foreground uppercase block mb-0.5">
+                        Check-out
+                      </span>
+                      <input
+                        type="date"
+                        value={row.checkOut}
+                        min={row.checkIn || undefined}
+                        onChange={(e) => updateRow(row.id, 'checkOut', e.target.value)}
+                        className={inputCls}
+                      />
+                    </div>
+
+                    {/* Facility multi-select */}
+                    <div className="relative" data-dropdown>
+                      <span className="lg:hidden text-[10px] font-semibold text-muted-foreground uppercase block mb-0.5">
+                        Facilities <span className="normal-case font-normal">(optional)</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDropdownOpen(dropdownOpen === row.id ? null : row.id);
+                          setFacilitySearch('');
+                        }}
+                        className={`${inputCls} text-left flex items-center gap-1 flex-wrap min-h-[38px]`}
+                      >
+                        {row.facilityCodes.length === 0 ? (
+                          <span className="text-muted-foreground">Select facilities...</span>
+                        ) : (
+                          row.facilityCodes.map((code) => (
+                            <span
+                              key={code}
+                              className="inline-flex items-center gap-0.5 font-mono font-bold text-[11px] bg-primary/10 text-primary px-1.5 py-0.5 rounded"
+                            >
+                              {code}
+                              <span
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleFacility(row.id, code);
+                                }}
+                                className="hover:text-rose-600 cursor-pointer"
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </span>
+                            </span>
+                          ))
+                        )}
+                      </button>
+
+                      {dropdownOpen === row.id && (
+                        <div className="absolute z-50 mt-1 w-full bg-card border border-border rounded-xl shadow-lg p-2 max-h-64 flex flex-col">
+                          <div className="relative mb-1.5">
+                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                            <input
+                              type="text"
+                              placeholder="Search facilities..."
+                              value={facilitySearch}
+                              onChange={(e) => setFacilitySearch(e.target.value)}
+                              className="w-full pl-7 pr-3 py-1.5 rounded-lg border border-input bg-background text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                            />
+                          </div>
+                          <div className="overflow-y-auto flex-1 space-y-0.5">
+                            {filteredFacilities.length === 0 ? (
+                              <p className="text-xs text-muted-foreground text-center py-3">No facilities found</p>
+                            ) : (
+                              filteredFacilities.map((fac) => {
+                                const checked = row.facilityCodes.includes(fac.facilityCode);
+                                return (
+                                  <label
+                                    key={fac.id}
+                                    className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs cursor-pointer transition ${
+                                      checked ? 'bg-primary/5 text-primary' : 'hover:bg-muted'
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={() => toggleFacility(row.id, fac.facilityCode)}
+                                      className="accent-primary w-3.5 h-3.5"
+                                    />
+                                    <span className="font-mono font-bold">{fac.facilityCode}</span>
+                                    <span className="text-muted-foreground">{fac.building}</span>
+                                    <span className="ml-auto text-[10px] px-1 py-0.5 rounded bg-muted border border-border">
+                                      {fac.facilityType.name}
+                                    </span>
+                                  </label>
+                                );
+                              })
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Amount */}
+                    <div>
+                      <span className="lg:hidden text-[10px] font-semibold text-muted-foreground uppercase block mb-0.5">
+                        Amount (₱)
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        placeholder="10000"
+                        value={row.totalAmount}
+                        onChange={(e) => updateRow(row.id, 'totalAmount', e.target.value === '' ? '' : Number(e.target.value))}
+                        className={inputCls}
+                      />
+                    </div>
+
+                    {/* Remove */}
+                    <div className="flex items-start justify-end lg:justify-center pt-0 lg:pt-0">
+                      <button
+                        type="button"
+                        onClick={() => removeRow(row.id)}
+                        disabled={rows.length <= 1}
+                        className="p-1.5 rounded text-muted-foreground hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition disabled:opacity-30 disabled:cursor-not-allowed"
+                        title="Remove row"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Add row button */}
+                <button
+                  type="button"
+                  onClick={addRow}
+                  className="flex items-center gap-2 px-4 py-2 border border-dashed border-border text-sm font-medium rounded-lg hover:bg-accent transition text-muted-foreground w-full justify-center"
+                >
+                  <Plus className="w-4 h-4" /> Add Another Booking
+                </button>
+              </>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between pt-2">
+            <Link
+              href="/dashboard/reservations"
+              className="flex items-center gap-2 px-4 py-2 border border-border text-sm font-medium rounded-lg hover:bg-accent transition text-muted-foreground"
+            >
+              <ChevronLeft className="w-4 h-4" /> Cancel
+            </Link>
+            <button
+              type="button"
+              disabled={rows.every((r) => !r.name && !r.checkIn && !r.checkOut && r.totalAmount === '')}
+              onClick={parseRows}
+              className="flex items-center gap-2 px-5 py-2.5 bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-semibold rounded-lg shadow disabled:opacity-50 disabled:cursor-not-allowed transition"
+            >
+              <Upload className="w-4 h-4" />
+              Review & Import
+            </button>
           </div>
         </>
       )}
@@ -281,7 +537,10 @@ export default function BulkImportPage() {
                         <td className="p-3">
                           <button
                             type="button"
-                            onClick={() => removeRow(row.id)}
+                            onClick={() => {
+                              setParsed((prev) => prev.filter((r) => r.id !== row.id));
+                              if (parsed.length <= 1) setStep('input');
+                            }}
                             className="p-1 rounded text-muted-foreground hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition"
                             title="Remove row"
                           >

@@ -236,16 +236,38 @@ export class ReservationsService {
 
     const results: { index: number; name: string; facilityCodes: string; success: boolean; reservationNumber?: string; error?: string }[] = [];
 
+    // Pre-flight: detect intra-batch duplicates (same name + same checkIn date)
+    const batchSeen = new Map<string, number>();
+    const batchDuplicates = new Map<number, string>();
+    dto.bookings.forEach((item, idx) => {
+      const key = `${item.name.trim().toLowerCase()}|${item.checkIn}`;
+      if (batchSeen.has(key)) {
+        batchDuplicates.set(idx, `Duplicate in batch: same name and check-in date as row #${(batchSeen.get(key)! + 1)}`);
+        batchDuplicates.set(batchSeen.get(key)!, `Duplicate in batch: same name and check-in date as row #${idx + 1}`);
+      } else {
+        batchSeen.set(key, idx);
+      }
+    });
+
     for (let i = 0; i < dto.bookings.length; i++) {
       const item = dto.bookings[i];
 
+      // Reject intra-batch duplicates immediately
+      if (batchDuplicates.has(i)) {
+        results.push({
+          index: i,
+          name: item.name,
+          facilityCodes: item.facilityCodes,
+          success: false,
+          error: batchDuplicates.get(i),
+        });
+        continue;
+      }
+
       try {
         const parts = item.name.trim().split(/\s+/);
-        if (parts.length < 2) {
-          throw new Error('Name must include at least first and last name');
-        }
         const holderFirstName = parts[0];
-        const holderLastName = parts.slice(1).join(' ');
+        const holderLastName = parts.slice(1).join(' ') || '';
 
         const checkIn = new Date(`${item.checkIn}T14:00:00.000Z`);
         const checkOut = new Date(`${item.checkOut}T12:00:00.000Z`);
@@ -254,30 +276,50 @@ export class ReservationsService {
           throw new Error('Check-out date must be after check-in date');
         }
 
-        const codeList = item.facilityCodes.split(',').map((c) => c.trim().toUpperCase());
+        // DB-level duplicate check: same name + same check-in date already exists
+        const dayStart = new Date(`${item.checkIn}T00:00:00.000Z`);
+        const dayEnd = new Date(`${item.checkIn}T23:59:59.999Z`);
+        const existingDuplicate = await this.prisma.reservation.findFirst({
+          where: {
+            holderFirstName: { equals: holderFirstName },
+            holderLastName: { equals: holderLastName },
+            checkInDate: { gte: dayStart, lte: dayEnd },
+            status: { notIn: [ReservationStatus.CANCELLED, ReservationStatus.NO_SHOW] },
+          },
+        });
+        if (existingDuplicate) {
+          throw new Error(
+            `A reservation for "${item.name}" checking in on ${item.checkIn} already exists (${existingDuplicate.reservationNumber})`
+          );
+        }
+
+        const codeList = item.facilityCodes
+          ? item.facilityCodes.split(',').map((c) => c.trim().toUpperCase()).filter(Boolean)
+          : [];
         const matchedFacilities = codeList.map((code) => {
           const f = facilityByCode.get(code);
           if (!f) throw new Error(`Facility "${code}" not found or inactive`);
           return f;
         });
 
-        const todayStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-        const startOfDay = new Date();
-        startOfDay.setHours(0, 0, 0, 0);
-        const countToday = await this.prisma.reservation.count({
-          where: { createdAt: { gte: startOfDay } },
-        });
-        const nextSeq = (countToday + 1 + results.filter(r => r.success).length).toString().padStart(4, '0');
-        const reservationNumber = `HMS-${todayStr}-${nextSeq}`;
-
         const nightsCount = Math.max(1, Math.ceil(
           (checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24)
         ));
 
-        await this.prisma.$transaction(async (tx) => {
+        const reservationNumber = await this.prisma.$transaction(async (tx) => {
+          const todayStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+          const startOfDay = new Date();
+          startOfDay.setHours(0, 0, 0, 0);
+          
+          const countToday = await tx.reservation.count({
+            where: { createdAt: { gte: startOfDay } },
+          });
+          const nextSeq = (countToday + 1).toString().padStart(4, '0');
+          const generatedResNum = `HMS-${todayStr}-${nextSeq}`;
+
           const reservation = await tx.reservation.create({
             data: {
-              reservationNumber,
+              reservationNumber: generatedResNum,
               holderFirstName,
               holderLastName,
               holderEmail: 'historical@booking.local',
@@ -291,6 +333,7 @@ export class ReservationsService {
             },
           });
 
+          // Only create facility links if codes were provided
           for (const facility of matchedFacilities) {
             await tx.reservationFacility.create({
               data: {
@@ -305,7 +348,9 @@ export class ReservationsService {
             (f) => f.facilityType.name.toUpperCase().includes('FUNCTION')
           ) ? ChargeType.FUNCTION_HALL_CHARGE : ChargeType.ROOM_CHARGE;
 
-          const facilityList = matchedFacilities.map((f) => f.facilityCode).join(', ');
+          const facilityList = matchedFacilities.length > 0
+            ? matchedFacilities.map((f) => f.facilityCode).join(', ')
+            : 'No facility assigned';
           await tx.charge.create({
             data: {
               reservationId: reservation.id,
@@ -324,6 +369,8 @@ export class ReservationsService {
               paidAt: checkIn,
             },
           });
+
+          return generatedResNum;
         });
 
         results.push({
@@ -396,7 +443,7 @@ export class ReservationsService {
           charges: true,
           payments: true,
         },
-        orderBy: { checkInDate: 'asc' },
+        orderBy: { reservationNumber: 'desc' },
         skip,
         take: limit,
       }),
