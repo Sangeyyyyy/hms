@@ -31,7 +31,7 @@ interface Reservation {
   checkInDate: string;
   checkOutDate: string;
   notes?: string;
-  facilities: { facilityId: string; facility: Facility }[];
+  facilities: { facilityId: string; facility: Facility; startTime?: string; endTime?: string }[];
   occupants: Occupant[];
 }
 
@@ -46,7 +46,7 @@ export default function EditReservationPage({ params }: { params: Promise<{ id: 
 
   // Form fields
   const [holder, setHolder] = useState({ firstName: '', lastName: '', email: '', phone: '' });
-  const [selectedFacilityIds, setSelectedFacilityIds] = useState<string[]>([]);
+  const [selectedFacilitiesState, setSelectedFacilitiesState] = useState<{ facilityId: string; timeslot?: string }[]>([]);
   const [checkInDate, setCheckInDate] = useState('');
   const [checkOutDate, setCheckOutDate] = useState('');
   const [notes, setNotes] = useState('');
@@ -66,7 +66,18 @@ export default function EditReservationPage({ params }: { params: Promise<{ id: 
           email: r.holderEmail,
           phone: r.holderPhone,
         });
-        setSelectedFacilityIds(r.facilities.map((rf) => rf.facilityId));
+        setSelectedFacilitiesState(r.facilities.map((rf) => {
+          let timeslot = undefined;
+          if (rf.startTime) {
+            const h = new Date(rf.startTime).getUTCHours(); // Just a rough guess. Using string match is better if possible but this handles initialization
+            if (h === 8) {
+              timeslot = rf.endTime && new Date(rf.endTime).getUTCHours() === 17 ? 'wholeday' : '8am-12nn';
+            } else if (h === 13) {
+              timeslot = '1pm-5pm';
+            }
+          }
+          return { facilityId: rf.facilityId, timeslot };
+        }));
         setCheckInDate(r.checkInDate.slice(0, 10));
         setCheckOutDate(r.checkOutDate.slice(0, 10));
         setNotes(r.notes || '');
@@ -95,13 +106,28 @@ export default function EditReservationPage({ params }: { params: Promise<{ id: 
     return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
   })();
 
-  const selectedFacilities = allFacilities.filter((f) => selectedFacilityIds.includes(f.id));
-  const totalAmount = selectedFacilities.reduce((sum, f) => sum + f.facilityType.defaultRate * Math.max(1, nights), 0);
+  const selectedFacilities = allFacilities.filter((f) => selectedFacilitiesState.some(s => s.facilityId === f.id));
+  const totalAmount = selectedFacilitiesState.reduce((sum, sel) => {
+    const f = allFacilities.find(fac => fac.id === sel.facilityId);
+    if (!f) return sum;
+    const isFunctionHall = f.facilityType.name.toUpperCase().includes('FUNCTION');
+    if (isFunctionHall && sel.timeslot) {
+      const dailyRate = sel.timeslot === 'wholeday' ? 5000 : 2500;
+      return sum + dailyRate * Math.max(1, nights);
+    }
+    return sum + f.facilityType.defaultRate * Math.max(1, nights);
+  }, 0);
 
   const toggleFacility = (id: string) =>
-    setSelectedFacilityIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    setSelectedFacilitiesState((prev) =>
+      prev.some(x => x.facilityId === id) ? prev.filter((x) => x.facilityId !== id) : [...prev, { facilityId: id }]
     );
+
+  const setFacilityTimeslot = (id: string, timeslot: string) => {
+    setSelectedFacilitiesState((prev) =>
+      prev.map(x => x.facilityId === id ? { ...x, timeslot } : x)
+    );
+  };
 
   const addOccupant = () =>
     setOccupants((prev) => [...prev, { firstName: '', lastName: '', email: '', phone: '' }]);
@@ -115,7 +141,11 @@ export default function EditReservationPage({ params }: { params: Promise<{ id: 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (nights <= 0) { toast.error('Check-out must be after check-in'); return; }
-    if (selectedFacilityIds.length === 0) { toast.error('Select at least one facility'); return; }
+    if (selectedFacilitiesState.length === 0) { toast.error('Select at least one facility'); return; }
+    if (selectedFacilitiesState.some(s => {
+      const f = allFacilities.find(fac => fac.id === s.facilityId);
+      return f?.facilityType.name.toUpperCase().includes('FUNCTION') && !s.timeslot;
+    })) { toast.error('Select timeslots for function halls'); return; }
     if (occupants.some((o) => !o.firstName || !o.lastName)) { toast.error('All occupant names are required'); return; }
 
     setSubmitting(true);
@@ -128,7 +158,20 @@ export default function EditReservationPage({ params }: { params: Promise<{ id: 
         checkInDate: new Date(checkInDate).toISOString(),
         checkOutDate: new Date(checkOutDate).toISOString(),
         notes: notes || undefined,
-        facilityIds: selectedFacilityIds,
+        facilitySelections: selectedFacilitiesState.map(f => {
+          let startTime, endTime;
+          if (f.timeslot === '8am-12nn') {
+            startTime = `${checkInDate}T08:00:00.000Z`;
+            endTime = `${checkInDate}T12:00:00.000Z`;
+          } else if (f.timeslot === '1pm-5pm') {
+            startTime = `${checkInDate}T13:00:00.000Z`;
+            endTime = `${checkInDate}T17:00:00.000Z`;
+          } else if (f.timeslot === 'wholeday') {
+            startTime = `${checkInDate}T08:00:00.000Z`;
+            endTime = `${checkInDate}T17:00:00.000Z`;
+          }
+          return { facilityId: f.facilityId, startTime, endTime };
+        }),
         occupants: occupants.filter((o) => o.firstName && o.lastName),
       });
       toast.success('Reservation updated successfully');
@@ -204,29 +247,49 @@ export default function EditReservationPage({ params }: { params: Promise<{ id: 
           </h2>
           <div className="grid sm:grid-cols-2 gap-3 max-h-80 overflow-y-auto pr-1">
             {allFacilities.map((fac) => {
-              const selected = selectedFacilityIds.includes(fac.id);
+              const sel = selectedFacilitiesState.find(x => x.facilityId === fac.id);
+              const selected = !!sel;
+              const isFunctionHall = fac.facilityType.name.toUpperCase().includes('FUNCTION');
               return (
-                <button
-                  key={fac.id}
-                  type="button"
-                  onClick={() => toggleFacility(fac.id)}
-                  className={`text-left p-3 rounded-xl border-2 transition-all hover:-translate-y-px ${
-                    selected ? 'border-primary bg-primary/5' : 'border-border bg-card hover:border-primary/40'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <div className="font-bold text-sm text-foreground">{fac.facilityCode}</div>
-                      <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                        <MapPin className="w-3 h-3" /> {fac.building}
+                <div key={fac.id} className="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleFacility(fac.id)}
+                    className={`text-left p-3 rounded-xl border-2 transition-all hover:-translate-y-px ${
+                      selected ? 'border-primary bg-primary/5' : 'border-border bg-card hover:border-primary/40'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="font-bold text-sm text-foreground">{fac.facilityCode}</div>
+                        <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                          <MapPin className="w-3 h-3" /> {fac.building}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-muted border border-border text-muted-foreground">{fac.facilityType.name}</span>
+                        <div className="text-xs font-bold text-primary mt-1">
+                          {isFunctionHall ? 'Dynamic Rate' : `₱${fac.facilityType.defaultRate.toLocaleString()}/night`}
+                        </div>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-muted border border-border text-muted-foreground">{fac.facilityType.name}</span>
-                      <div className="text-xs font-bold text-primary mt-1">₱{fac.facilityType.defaultRate.toLocaleString()}/night</div>
+                  </button>
+                  {selected && isFunctionHall && (
+                    <div className="pl-4 pb-2">
+                      <label className="block text-xs font-semibold text-muted-foreground mb-1">Select Timeslot *</label>
+                      <select 
+                        value={sel.timeslot || ''} 
+                        onChange={(e) => setFacilityTimeslot(fac.id, e.target.value)}
+                        className={inputCls}
+                      >
+                        <option value="">Select a timeslot...</option>
+                        <option value="8am-12nn">Morning (8am - 12nn) - ₱2,500</option>
+                        <option value="1pm-5pm">Afternoon (1pm - 5pm) - ₱2,500</option>
+                        <option value="wholeday">Whole Day (8am - 5pm) - ₱5,000</option>
+                      </select>
                     </div>
-                  </div>
-                </button>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -247,7 +310,7 @@ export default function EditReservationPage({ params }: { params: Promise<{ id: 
           </div>
           {nights > 0 && (
             <div className="bg-muted rounded-lg border border-border p-3 text-sm flex justify-between">
-              <span className="text-muted-foreground">{nights} night{nights !== 1 ? 's' : ''} × {selectedFacilityIds.length} unit{selectedFacilityIds.length !== 1 ? 's' : ''}</span>
+              <span className="text-muted-foreground">{nights} night{nights !== 1 ? 's' : ''} × {selectedFacilitiesState.length} unit{selectedFacilitiesState.length !== 1 ? 's' : ''}</span>
               <span className="font-extrabold text-primary">₱{totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
             </div>
           )}

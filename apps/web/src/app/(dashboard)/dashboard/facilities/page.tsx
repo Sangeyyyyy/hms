@@ -17,6 +17,7 @@ import {
   Settings2,
   Layers,
   Sparkles,
+  Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -188,6 +189,18 @@ export default function FacilitiesPage() {
     }
   };
 
+  // Delete Facility
+  const handleDeleteFacility = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this facility?')) return;
+    try {
+      await apiClient.delete(`/facilities/${id}`);
+      toast.success('Facility deleted successfully');
+      fetchFacilities();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to delete facility');
+    }
+  };
+
   // Create Facility Type
   const handleCreateType = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -207,6 +220,18 @@ export default function FacilitiesPage() {
       toast.error(error.response?.data?.message || 'Failed to create room type');
     } finally {
       setFormLoading(false);
+    }
+  };
+
+  // Delete Facility Type
+  const handleDeleteType = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this room type?')) return;
+    try {
+      await apiClient.delete(`/facilities/types/${id}`);
+      toast.success('Room type deleted successfully');
+      fetchTypes();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to delete room type');
     }
   };
 
@@ -478,6 +503,13 @@ export default function FacilitiesPage() {
                               >
                                 <Edit2 className="w-4 h-4" />
                               </button>
+                              <button
+                                onClick={() => handleDeleteFacility(item.id)}
+                                className="p-1.5 rounded-lg text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition"
+                                title="Delete facility"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
                             </div>
                           </td>
                         )}
@@ -558,13 +590,22 @@ export default function FacilitiesPage() {
                         </td>
                         {isManager && (
                           <td className="p-4 text-right">
-                            <button
-                              onClick={() => openEditType(type)}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border bg-card text-xs font-semibold hover:bg-accent transition"
-                            >
-                              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                              Modify Rates/Capacity
-                            </button>
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => openEditType(type)}
+                                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition"
+                                title="Edit facility type rates and capacity"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteType(type.id)}
+                                className="p-1.5 rounded-lg text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition"
+                                title="Delete facility type"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           </td>
                         )}
                       </tr>

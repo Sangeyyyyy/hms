@@ -35,14 +35,15 @@ export class ReservationsService {
     }
 
     // 1. Verify all facility IDs exist and are active
+    const facilityIds = dto.facilitySelections.map(f => f.facilityId);
     const facilities = await this.prisma.facility.findMany({
       where: {
-        id: { in: dto.facilityIds },
+        id: { in: facilityIds },
       },
       include: { facilityType: true },
     });
 
-    if (facilities.length !== dto.facilityIds.length) {
+    if (facilities.length !== facilityIds.length) {
       throw new NotFoundException('One or more selected facilities do not exist');
     }
 
@@ -54,25 +55,35 @@ export class ReservationsService {
     }
 
     // 2. Prevent overlapping bookings (excluding Cancelled & No Show)
-    const overlaps = await this.prisma.reservationFacility.findMany({
-      where: {
-        facilityId: { in: dto.facilityIds },
-        reservation: {
-          status: { notIn: [ReservationStatus.CANCELLED, ReservationStatus.NO_SHOW] },
-          checkInDate: { lt: checkOut },
-          checkOutDate: { gt: checkIn },
+    for (const sel of dto.facilitySelections) {
+      const facility = facilities.find((f) => f.id === sel.facilityId);
+      if (!facility) continue;
+      const isFunctionHall = facility.facilityType.name.toUpperCase().includes('FUNCTION');
+      
+      const qStartTime = (isFunctionHall && sel.startTime) ? new Date(sel.startTime) : checkIn;
+      const qEndTime = (isFunctionHall && sel.endTime) ? new Date(sel.endTime) : checkOut;
+      
+      const overlaps = await this.prisma.reservationFacility.findMany({
+        where: {
+          facilityId: sel.facilityId,
+          reservation: {
+            status: { notIn: [ReservationStatus.CANCELLED, ReservationStatus.NO_SHOW] },
+          },
         },
-      },
-      include: {
-        facility: true,
-      },
-    });
+        include: { reservation: true },
+      });
 
-    if (overlaps.length > 0) {
-      const bookedCodes = Array.from(new Set(overlaps.map((o) => o.facility.facilityCode)));
-      throw new ConflictException(
-        `Facilities [${bookedCodes.join(', ')}] are already reserved for the selected dates`
-      );
+      const hasOverlap = overlaps.some((o) => {
+        const existingStart = o.startTime || o.reservation.checkInDate;
+        const existingEnd = o.endTime || o.reservation.checkOutDate;
+        return existingStart < qEndTime && existingEnd > qStartTime;
+      });
+
+      if (hasOverlap) {
+        throw new ConflictException(
+          `Facility ${facility.facilityCode} is already reserved for the selected timeslot/dates`
+        );
+      }
     }
 
     // 3. Generate Reservation Number (HMS-YYYYMMDD-XXXX)
@@ -123,12 +134,24 @@ export class ReservationsService {
 
       // B. Create joined facilities (capturing current rate)
       await tx.reservationFacility.createMany({
-        data: dto.facilityIds.map((fid) => {
-          const f = facilities.find((fac) => fac.id === fid);
+        data: dto.facilitySelections.map((sel) => {
+          const f = facilities.find((fac) => fac.id === sel.facilityId);
+          const isFunctionHall = f?.facilityType.name.toUpperCase().includes('FUNCTION');
+          
+          let rateApplied = f?.facilityType.defaultRate || 0;
+          if (isFunctionHall) {
+            const qStart = sel.startTime ? new Date(sel.startTime) : checkIn;
+            const qEnd = sel.endTime ? new Date(sel.endTime) : checkOut;
+            const hours = (qEnd.getTime() - qStart.getTime()) / (1000 * 60 * 60);
+            rateApplied = hours <= 5 ? 2500 : 5000;
+          }
+
           return {
             reservationId: reservation.id,
-            facilityId: fid,
-            rateApplied: f?.facilityType.defaultRate || 0,
+            facilityId: sel.facilityId,
+            rateApplied,
+            startTime: (isFunctionHall && sel.startTime) ? new Date(sel.startTime) : null,
+            endTime: (isFunctionHall && sel.endTime) ? new Date(sel.endTime) : null,
           };
         }),
       });
@@ -151,14 +174,29 @@ export class ReservationsService {
         (checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24)
       ));
       
-      const initialCharges = facilities.map((f) => {
-        const isFunctionHall = f.facilityType.name.toUpperCase().includes('FUNCTION');
+      const initialCharges = dto.facilitySelections.map((sel) => {
+        const f = facilities.find((fac) => fac.id === sel.facilityId);
+        const isFunctionHall = f?.facilityType.name.toUpperCase().includes('FUNCTION');
         const chargeType = isFunctionHall ? ChargeType.FUNCTION_HALL_CHARGE : ChargeType.ROOM_CHARGE;
+        
+        let rateApplied = f?.facilityType.defaultRate || 0;
+        let amount = rateApplied * nightsCount;
+        let description = `${f?.facilityCode} - Base Stay (${nightsCount} night${nightsCount !== 1 ? 's' : ''})`;
+
+        if (isFunctionHall) {
+          const qStart = sel.startTime ? new Date(sel.startTime) : checkIn;
+          const qEnd = sel.endTime ? new Date(sel.endTime) : checkOut;
+          const hours = (qEnd.getTime() - qStart.getTime()) / (1000 * 60 * 60);
+          rateApplied = hours <= 5 ? 2500 : 5000;
+          amount = rateApplied * nightsCount;
+          description = `${f?.facilityCode} - Function Hall Rent (${hours <= 5 ? 'Half Day' : 'Whole Day'}, ${nightsCount} day${nightsCount !== 1 ? 's' : ''})`;
+        }
+
         return {
           reservationId: reservation.id,
-          description: `${f.facilityCode} - Base ${isFunctionHall ? 'Rent' : 'Stay'} (${nightsCount} night${nightsCount !== 1 ? 's' : ''})`,
+          description,
           quantity: 1,
-          amount: (f.facilityType.defaultRate || 0) * nightsCount,
+          amount,
           type: chargeType,
         };
       });
@@ -457,29 +495,49 @@ export class ReservationsService {
     }
 
     // Check facility overlap changes
-    const targetFacilityIds = dto.facilityIds || existing.facilities.map((f) => f.facilityId);
+    const targetFacilitySelections = dto.facilitySelections || existing.facilities.map((f) => ({
+      facilityId: f.facilityId,
+      startTime: f.startTime?.toISOString(),
+      endTime: f.endTime?.toISOString()
+    }));
 
-    if (dto.checkInDate || dto.checkOutDate || dto.facilityIds) {
-      const overlaps = await this.prisma.reservationFacility.findMany({
-        where: {
-          facilityId: { in: targetFacilityIds },
-          reservationId: { not: id },
-          reservation: {
-            status: { notIn: [ReservationStatus.CANCELLED, ReservationStatus.NO_SHOW] },
-            checkInDate: { lt: checkOut },
-            checkOutDate: { gt: checkIn },
-          },
-        },
-        include: {
-          facility: true,
-        },
+    if (dto.checkInDate || dto.checkOutDate || dto.facilitySelections) {
+      const facilityIds = targetFacilitySelections.map(f => f.facilityId);
+      const facilities = await this.prisma.facility.findMany({
+        where: { id: { in: facilityIds } },
+        include: { facilityType: true },
       });
 
-      if (overlaps.length > 0) {
-        const bookedCodes = Array.from(new Set(overlaps.map((o) => o.facility.facilityCode)));
-        throw new ConflictException(
-          `Facilities [${bookedCodes.join(', ')}] are already reserved for the selected dates`
-        );
+      for (const sel of targetFacilitySelections) {
+        const facility = facilities.find((f) => f.id === sel.facilityId);
+        if (!facility) continue;
+        const isFunctionHall = facility.facilityType.name.toUpperCase().includes('FUNCTION');
+        
+        const qStartTime = (isFunctionHall && sel.startTime) ? new Date(sel.startTime) : checkIn;
+        const qEndTime = (isFunctionHall && sel.endTime) ? new Date(sel.endTime) : checkOut;
+        
+        const overlaps = await this.prisma.reservationFacility.findMany({
+          where: {
+            facilityId: sel.facilityId,
+            reservationId: { not: id },
+            reservation: {
+              status: { notIn: [ReservationStatus.CANCELLED, ReservationStatus.NO_SHOW] },
+            },
+          },
+          include: { reservation: true },
+        });
+
+        const hasOverlap = overlaps.some((o) => {
+          const existingStart = o.startTime || o.reservation.checkInDate;
+          const existingEnd = o.endTime || o.reservation.checkOutDate;
+          return existingStart < qEndTime && existingEnd > qStartTime;
+        });
+
+        if (hasOverlap) {
+          throw new ConflictException(
+            `Facility ${facility.facilityCode} is already reserved for the selected timeslot/dates`
+          );
+        }
       }
     }
 
@@ -502,10 +560,11 @@ export class ReservationsService {
       });
 
       // B. Re-sync facilities if provided
-      if (dto.facilityIds) {
+      if (dto.facilitySelections) {
+        const facilityIds = dto.facilitySelections.map(f => f.facilityId);
         // Fetch new rates
         const newFacilities = await tx.facility.findMany({
-          where: { id: { in: dto.facilityIds } },
+          where: { id: { in: facilityIds } },
           include: { facilityType: true },
         });
 
@@ -516,12 +575,24 @@ export class ReservationsService {
 
         // Insert new relations
         await tx.reservationFacility.createMany({
-          data: dto.facilityIds.map((fid) => {
-            const f = newFacilities.find((fac) => fac.id === fid);
+          data: dto.facilitySelections.map((sel) => {
+            const f = newFacilities.find((fac) => fac.id === sel.facilityId);
+            const isFunctionHall = f?.facilityType.name.toUpperCase().includes('FUNCTION');
+            
+            let rateApplied = f?.facilityType.defaultRate || 0;
+            if (isFunctionHall) {
+              const qStart = sel.startTime ? new Date(sel.startTime) : checkIn;
+              const qEnd = sel.endTime ? new Date(sel.endTime) : checkOut;
+              const hours = (qEnd.getTime() - qStart.getTime()) / (1000 * 60 * 60);
+              rateApplied = hours <= 5 ? 2500 : 5000;
+            }
+
             return {
               reservationId: id,
-              facilityId: fid,
-              rateApplied: f?.facilityType.defaultRate || 0,
+              facilityId: sel.facilityId,
+              rateApplied,
+              startTime: (isFunctionHall && sel.startTime) ? new Date(sel.startTime) : null,
+              endTime: (isFunctionHall && sel.endTime) ? new Date(sel.endTime) : null,
             };
           }),
         });

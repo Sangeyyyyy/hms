@@ -168,6 +168,8 @@ model ReservationFacility {
   reservationId String      @map("reservation_id")
   facilityId    String      @map("facility_id")
   rateApplied   Float       @map("rate_applied")
+  startTime     DateTime?   @map("start_time")
+  endTime       DateTime?   @map("end_time")
   reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
   facility      Facility    @relation(fields: [facilityId], references: [id])
 

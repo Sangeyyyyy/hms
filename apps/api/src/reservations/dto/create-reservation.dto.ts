@@ -14,6 +14,23 @@ import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ClientType } from '@prisma/client';
 
+export class FacilitySelectionDto {
+  @ApiProperty({ example: 'facility-uuid-1' })
+  @IsUUID()
+  @IsNotEmpty()
+  facilityId: string;
+
+  @ApiPropertyOptional({ example: '2026-06-10T08:00:00.000Z' })
+  @IsOptional()
+  @IsDateString()
+  startTime?: string;
+
+  @ApiPropertyOptional({ example: '2026-06-10T12:00:00.000Z' })
+  @IsOptional()
+  @IsDateString()
+  endTime?: string;
+}
+
 export class OccupantDto {
   @ApiProperty({ example: 'John' })
   @IsString()
@@ -69,10 +86,11 @@ export class CreateReservationDto {
   @IsString()
   notes?: string;
 
-  @ApiProperty({ example: ['facility-uuid-1', 'facility-uuid-2'] })
+  @ApiProperty({ type: [FacilitySelectionDto] })
   @IsArray()
-  @IsUUID(undefined, { each: true })
-  facilityIds: string[];
+  @ValidateNested({ each: true })
+  @Type(() => FacilitySelectionDto)
+  facilitySelections: FacilitySelectionDto[];
 
   @ApiPropertyOptional({ type: [OccupantDto] })
   @IsOptional()

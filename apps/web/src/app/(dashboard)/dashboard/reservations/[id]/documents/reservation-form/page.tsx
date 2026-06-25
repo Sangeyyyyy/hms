@@ -44,7 +44,7 @@ interface Reservation {
   checkInDate: string;
   checkOutDate: string;
   notes?: string;
-  facilities: Array<{ facility: Facility; rateApplied: number }>;
+  facilities: Array<{ facility: Facility; rateApplied: number; startTime?: string; endTime?: string }>;
   occupants: Occupant[];
   createdAt: string;
 }
@@ -84,6 +84,17 @@ export default function ReservationFormPage({ params }: { params: Promise<{ id: 
   }
 
   if (!reservation) return null;
+
+  let funcHallPrefTime = reservation.functionHallPreferredTime || '';
+  const funcHall = reservation.facilities.find(f => f.facility.facilityType.name.toUpperCase().includes('FUNCTION'));
+  if (funcHall?.startTime) {
+    const h = new Date(funcHall.startTime).getUTCHours();
+    if (h === 8) {
+      funcHallPrefTime = funcHall.endTime && new Date(funcHall.endTime).getUTCHours() === 17 ? 'wholeday' : '8am-12nn';
+    } else if (h === 13) {
+      funcHallPrefTime = '1pm-5pm';
+    }
+  }
 
   return (
     <>
@@ -225,10 +236,11 @@ export default function ReservationFormPage({ params }: { params: Promise<{ id: 
             </div>
             <div className="flex items-end gap-6 pt-2">
               <span className="text-xs font-medium">Function Hall preferred time:</span>
-              <label className="flex items-center gap-2 text-xs"><input type="checkbox" readOnly checked={reservation.functionHallPreferredTime === '8am-12nn'} className="w-3.5 h-3.5 accent-primary" /> 8:00 am- 12:nn</label>
-              <label className="flex items-center gap-2 text-xs"><input type="checkbox" readOnly checked={reservation.functionHallPreferredTime === '1pm-5pm'} className="w-3.5 h-3.5 accent-primary" /> 1:00 pm- 5:00 pm</label>
+              <label className="flex items-center gap-2 text-xs"><input type="checkbox" readOnly checked={funcHallPrefTime === '8am-12nn'} className="w-3.5 h-3.5 accent-primary" /> 8:00 am- 12:nn</label>
+              <label className="flex items-center gap-2 text-xs"><input type="checkbox" readOnly checked={funcHallPrefTime === '1pm-5pm'} className="w-3.5 h-3.5 accent-primary" /> 1:00 pm- 5:00 pm</label>
+              <label className="flex items-center gap-2 text-xs"><input type="checkbox" readOnly checked={funcHallPrefTime === 'wholeday'} className="w-3.5 h-3.5 accent-primary" /> Whole Day</label>
               <span className="ml-4 text-xs font-medium">Other:</span>
-              <span className="flex-1 border-b border-gray-400 pb-0.5 font-bold text-gray-800">{!['8am-12nn', '1pm-5pm'].includes(reservation.functionHallPreferredTime || '') ? reservation.functionHallPreferredTime : ''}</span>
+              <span className="flex-1 border-b border-gray-400 pb-0.5 font-bold text-gray-800">{!['8am-12nn', '1pm-5pm', 'wholeday'].includes(funcHallPrefTime) ? funcHallPrefTime : ''}</span>
             </div>
           </div>
         </div>

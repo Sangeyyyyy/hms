@@ -69,7 +69,7 @@ export default function NewReservationPage() {
   const [selectedRegion, setSelectedRegion] = useState('');
   const [selectedProvince, setSelectedProvince] = useState('');
   const [clientType, setClientType] = useState<'INTERNAL' | 'EXTERNAL'>('EXTERNAL');
-  const [selectedFacilityIds, setSelectedFacilityIds] = useState<string[]>([]);
+  const [selectedFacilitiesState, setSelectedFacilitiesState] = useState<{ facilityId: string; timeslot?: string }[]>([]);
   const [checkInDate, setCheckInDate] = useState('');
   const [checkOutDate, setCheckOutDate] = useState('');
   const [notes, setNotes] = useState('');
@@ -84,7 +84,7 @@ export default function NewReservationPage() {
       if (storedOut) setCheckOutDate(storedOut);
       if (storedIds) {
         const ids = JSON.parse(storedIds);
-        if (Array.isArray(ids) && ids.length > 0) setSelectedFacilityIds(ids);
+        if (Array.isArray(ids) && ids.length > 0) setSelectedFacilitiesState(ids.map((id: string) => ({ facilityId: id })));
       }
       sessionStorage.removeItem('preselected_facility_ids');
       sessionStorage.removeItem('preselected_checkin');
@@ -132,7 +132,7 @@ export default function NewReservationPage() {
   const loadAvailability = async (checkIn: string, checkOut: string) => {
     if (!checkIn || !checkOut) return;
     setAvailabilityLoading(true);
-    setSelectedFacilityIds([]); // reset selection when dates change
+    setSelectedFacilitiesState([]); // reset selection when dates change
     try {
       const res = await apiClient.get('/facilities/availability', {
         params: { checkIn: new Date(checkIn).toISOString(), checkOut: new Date(checkOut).toISOString() },
@@ -147,7 +147,7 @@ export default function NewReservationPage() {
 
   // Computed
   const selectedFacilities = availableFacilities.filter((f) =>
-    selectedFacilityIds.includes(f.id)
+    selectedFacilitiesState.some(sel => sel.facilityId === f.id)
   );
 
   const nights = (() => {
@@ -156,22 +156,38 @@ export default function NewReservationPage() {
     return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
   })();
 
-  const totalAmount = selectedFacilities.reduce(
-    (sum, f) => sum + f.facilityType.defaultRate * Math.max(1, nights),
-    0
-  );
+  const totalAmount = selectedFacilitiesState.reduce((sum, sel) => {
+    const f = availableFacilities.find(fac => fac.id === sel.facilityId);
+    if (!f) return sum;
+    const isFunctionHall = f.facilityType.name.toUpperCase().includes('FUNCTION');
+    if (isFunctionHall && sel.timeslot) {
+      const dailyRate = sel.timeslot === 'wholeday' ? 5000 : 2500;
+      return sum + dailyRate * Math.max(1, nights);
+    }
+    return sum + f.facilityType.defaultRate * Math.max(1, nights);
+  }, 0);
 
   // Step validation
   const stepValid: Record<number, boolean> = {
     1: !!(holder.firstName && holder.lastName && holder.email && holder.phone),
     2: !!(checkInDate && checkOutDate && nights > 0),
-    3: selectedFacilityIds.length > 0,
+    3: selectedFacilitiesState.length > 0 && selectedFacilitiesState.every(s => {
+      const f = availableFacilities.find(fac => fac.id === s.facilityId);
+      if (f?.facilityType.name.toUpperCase().includes('FUNCTION')) return !!s.timeslot;
+      return true;
+    }),
     4: true,
   };
 
   const toggleFacility = (id: string) => {
-    setSelectedFacilityIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    setSelectedFacilitiesState((prev) =>
+      prev.some(x => x.facilityId === id) ? prev.filter((x) => x.facilityId !== id) : [...prev, { facilityId: id }]
+    );
+  };
+
+  const setFacilityTimeslot = (id: string, timeslot: string) => {
+    setSelectedFacilitiesState((prev) =>
+      prev.map(x => x.facilityId === id ? { ...x, timeslot } : x)
     );
   };
 
@@ -186,7 +202,20 @@ export default function NewReservationPage() {
         checkInDate: new Date(checkInDate).toISOString(),
         checkOutDate: new Date(checkOutDate).toISOString(),
         notes: notes || undefined,
-        facilityIds: selectedFacilityIds,
+        facilitySelections: selectedFacilitiesState.map(f => {
+          let startTime, endTime;
+          if (f.timeslot === '8am-12nn') {
+            startTime = `${checkInDate}T08:00:00.000Z`;
+            endTime = `${checkInDate}T12:00:00.000Z`;
+          } else if (f.timeslot === '1pm-5pm') {
+            startTime = `${checkInDate}T13:00:00.000Z`;
+            endTime = `${checkInDate}T17:00:00.000Z`;
+          } else if (f.timeslot === 'wholeday') {
+            startTime = `${checkInDate}T08:00:00.000Z`;
+            endTime = `${checkInDate}T17:00:00.000Z`;
+          }
+          return { facilityId: f.facilityId, startTime, endTime };
+        }),
         occupants: [],
         clientType,
         holderAddress: holder.address,
@@ -532,47 +561,65 @@ export default function NewReservationPage() {
           ) : (
             <div className="grid sm:grid-cols-2 gap-3 max-h-96 overflow-y-auto pr-1">
               {availableFacilities.map((fac) => {
-                const selected = selectedFacilityIds.includes(fac.id);
+                const sel = selectedFacilitiesState.find(x => x.facilityId === fac.id);
+                const selected = !!sel;
+                const isFunctionHall = fac.facilityType.name.toUpperCase().includes('FUNCTION');
                 return (
-                  <button
-                    key={fac.id}
-                    type="button"
-                    onClick={() => toggleFacility(fac.id)}
-                    className={`text-left p-3 rounded-xl border-2 transition-all hover:-translate-y-px ${
-                      selected ? 'border-primary bg-primary/5' : 'border-border bg-card hover:border-primary/40'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <div className="font-bold text-sm text-foreground flex items-center gap-1.5">
-                          <Building2 className="w-3.5 h-3.5 text-muted-foreground" />
-                          {fac.facilityCode}
+                  <div key={fac.id} className="flex flex-col gap-2">
+                    <button
+                      type="button"
+                      onClick={() => toggleFacility(fac.id)}
+                      className={`text-left p-3 rounded-xl border-2 transition-all hover:-translate-y-px ${
+                        selected ? 'border-primary bg-primary/5' : 'border-border bg-card hover:border-primary/40'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="font-bold text-sm text-foreground flex items-center gap-1.5">
+                            <Building2 className="w-3.5 h-3.5 text-muted-foreground" />
+                            {fac.facilityCode}
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                            <MapPin className="w-3 h-3" /> {fac.building}
+                          </div>
                         </div>
-                        <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
-                          <MapPin className="w-3 h-3" /> {fac.building}
+                        <div className="text-right">
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-muted border border-border text-muted-foreground">
+                            {fac.facilityType.name}
+                          </span>
+                          <div className="text-xs font-bold text-primary mt-1">
+                            {isFunctionHall ? 'Dynamic Rate' : `₱${fac.facilityType.defaultRate.toLocaleString()}/night`}
+                          </div>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-muted border border-border text-muted-foreground">
-                          {fac.facilityType.name}
-                        </span>
-                        <div className="text-xs font-bold text-primary mt-1">
-                          ₱{fac.facilityType.defaultRate.toLocaleString()}/night
-                        </div>
+                      <div className="flex items-center gap-3 mt-2 text-[10px] text-muted-foreground">
+                        <span><Users className="inline w-3 h-3 mr-0.5" />{fac.facilityType.baseCapacity}–{fac.facilityType.maxCapacity} guests</span>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-3 mt-2 text-[10px] text-muted-foreground">
-                      <span><Users className="inline w-3 h-3 mr-0.5" />{fac.facilityType.baseCapacity}–{fac.facilityType.maxCapacity} guests</span>
-                    </div>
-                  </button>
+                    </button>
+                    {selected && isFunctionHall && (
+                      <div className="pl-4 pb-2">
+                        <label className="block text-xs font-semibold text-muted-foreground mb-1">Select Timeslot *</label>
+                        <select 
+                          value={sel.timeslot || ''} 
+                          onChange={(e) => setFacilityTimeslot(fac.id, e.target.value)}
+                          className={inputCls}
+                        >
+                          <option value="">Select a timeslot...</option>
+                          <option value="8am-12nn">Morning (8am - 12nn) - ₱2,500</option>
+                          <option value="1pm-5pm">Afternoon (1pm - 5pm) - ₱2,500</option>
+                          <option value="wholeday">Whole Day (8am - 5pm) - ₱5,000</option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </div>
           )}
 
-          {selectedFacilityIds.length > 0 && (
+          {selectedFacilitiesState.length > 0 && (
             <div className="bg-primary/5 border border-primary/20 rounded-lg p-3 text-xs text-primary font-semibold">
-              {selectedFacilityIds.length} facility unit{selectedFacilityIds.length > 1 ? 's' : ''} selected · Est. ₱{totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })} total
+              {selectedFacilitiesState.length} facility unit{selectedFacilitiesState.length > 1 ? 's' : ''} selected · Est. ₱{totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })} total
             </div>
           )}
         </div>
@@ -605,16 +652,29 @@ export default function NewReservationPage() {
               <div className="px-4 py-2 bg-muted text-xs font-bold uppercase tracking-wide text-muted-foreground">
                 Selected Facilities
               </div>
-              {selectedFacilities.map((f) => (
-                <div key={f.id} className="px-4 py-3 flex items-center justify-between text-sm">
-                  <div>
-                    <span className="font-bold">{f.facilityCode}</span>
-                    <span className="ml-2 text-muted-foreground">{f.building}</span>
-                    <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-muted border border-border font-medium">{f.facilityType.name}</span>
+              {selectedFacilitiesState.map((sel) => {
+                const f = availableFacilities.find(fac => fac.id === sel.facilityId);
+                if (!f) return null;
+                const isFunctionHall = f.facilityType.name.toUpperCase().includes('FUNCTION');
+                let displayRate = `₱${f.facilityType.defaultRate.toLocaleString()}/night`;
+                let displayTimeslot = null;
+                if (isFunctionHall && sel.timeslot) {
+                  const amt = sel.timeslot === 'wholeday' ? 5000 : 2500;
+                  displayRate = `₱${amt.toLocaleString()}`;
+                  displayTimeslot = sel.timeslot === 'wholeday' ? 'Whole Day' : sel.timeslot === '8am-12nn' ? 'Morning' : 'Afternoon';
+                }
+                return (
+                  <div key={f.id} className="px-4 py-3 flex items-center justify-between text-sm">
+                    <div>
+                      <span className="font-bold">{f.facilityCode}</span>
+                      <span className="ml-2 text-muted-foreground">{f.building}</span>
+                      <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-muted border border-border font-medium">{f.facilityType.name}</span>
+                      {displayTimeslot && <span className="ml-2 text-xs text-primary font-bold">({displayTimeslot})</span>}
+                    </div>
+                    <span className="font-semibold text-primary">{displayRate}</span>
                   </div>
-                  <span className="font-semibold text-primary">₱{f.facilityType.defaultRate.toLocaleString()}/night</span>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Dates */}
